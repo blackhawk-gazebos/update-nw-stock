@@ -1,0 +1,23 @@
+<?php
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+
+require_once 'jsonRPCClient.php';
+require_once '00_creds.php';
+
+$client = new jsonRPCClient($api_url, $debug);
+
+// build creds object (you can hard-code or use env vars here)
+$creds = (object)[
+  'system_id' => 0,      // you can leave this out or set to 0 if the API ignores it
+  'username'  => $username,
+  'password'  => $password,
+];
+
+try {
+    // “getSystems” may list { id, name, description } for each system
+    $systems = $client->getSystems($creds);
+    echo "<pre>", print_r($systems, true), "</pre>";
+}
+catch (Exception $e) {
+    echo "RPC error: " . $e->getMessage();
+}
