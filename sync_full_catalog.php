@@ -1,6 +1,6 @@
 <?php
 // sync_full_catalog.php
-// A debug version: lists OMINS stock rows and matched SKUs against BC before syncing.
+// Debug version: shows first 10 BC SKUs and OMINS codes, lists matches with spacing.
 
 // Display all errors for debugging
 error_reporting(E_ALL);
@@ -18,32 +18,31 @@ $creds  = (object)[
     'password'  => $password,
 ];
 
-// Optional: read a 'matches' GET parameter to filter product names
+// Optional filter parameter
 $filter = isset($_GET['matches']) ? trim($_GET['matches']) : '';
+$filter_param = '';
 if ($filter !== '') {
-    // sanitize filter for URL
     $filter_param = '&name:like=' . urlencode($filter);
-    echo "Filtering BC products by name like '{$_GET['matches']}'..." . PHP_EOL;
-} else {
-    $filter_param = '';
+    echo "Filtering BC products by name like '{$filter}'" . PHP_EOL . PHP_EOL;
 }
 
-// 1) Fetch all BigCommerce products (+variants)
+// 1) Fetch BC products (+variants)
 $storeHash   = getenv('BC_STORE_HASH');
 $allProducts = [];
 $page = 1;
 do {
-    $url = "https://api.bigcommerce.com/stores/{$storeHash}/v3/catalog/products?include=variants&limit=250&page={$page}" . $filter_param;
     echo "Fetching BC page {$page}..." . PHP_EOL;
+    $url  = "https://api.bigcommerce.com/stores/{$storeHash}/v3/catalog/products"
+          . "?include=variants&limit=250&page={$page}{$filter_param}";
     $resp = bc_request('GET', $url);
     $data = $resp['data'] ?? [];
     $allProducts = array_merge($allProducts, $data);
     $page++;
-} while(count($data) === 250);
+} while (count($data) === 250);
 
-echo "Total BC products fetched: " . count($allProducts) . PHP_EOL;
+echo PHP_EOL . "Total BC products fetched: " . count($allProducts) . PHP_EOL;
 
-// 2) Map BC SKU => [product_id, variant_id]
+// 2) Map BC SKU => IDs
 $bcMap = [];
 foreach ($allProducts as $prod) {
     foreach ($prod['variants'] as $var) {
@@ -56,20 +55,24 @@ foreach ($allProducts as $prod) {
         }
     }
 }
+
 echo "Mapped " . count($bcMap) . " SKUs to BC IDs." . PHP_EOL;
 
+// List first 10 BC SKUs
+echo PHP_EOL . "First 10 BC SKUs:" . PHP_EOL;
+$bcSkus = array_keys($bcMap);
+foreach (array_slice($bcSkus, 0, 10) as $s) {
+    echo " - {$s}" . PHP_EOL;
+}
+
 // 3) Fetch OMINS stock rows
-echo "Fetching OMINS stock rows tabledef 1050..." . PHP_EOL;
+echo PHP_EOL . "Fetching OMINS stock rows (tabledef 1050)..." . PHP_EOL;
 $stockRows = $client->search($creds, ['url_params' => 'id=1050&limit=1000']);
 
-echo "Raw stockRows from OMINS:" . PHP_EOL;
+echo PHP_EOL . "Raw OMINS stockRows:" . PHP_EOL;
 print_r($stockRows);
 
-if (empty($stockRows)) {
-    echo "No stock rows returned from OMINS." . PHP_EOL;
-} else {
-    echo "Total OMINS stock rows: " . count($stockRows) . PHP_EOL;
-}
+echo PHP_EOL . (empty($stockRows) ? "No stock rows returned from OMINS." : "Total OMINS stock rows: " . count($stockRows)) . PHP_EOL;
 
 // 4) Build OMINS code=>stock map
 $ominsMap = [];
@@ -81,14 +84,22 @@ foreach ($stockRows as $row) {
     }
 }
 
-echo "OMINS codes found (keys):" . PHP_EOL;
-print_r(array_keys($ominsMap));
+echo PHP_EOL . "OMINS codes found:" . PHP_EOL;
+$ominsCodes = array_keys($ominsMap);
+print_r($ominsCodes);
 
-// 5) List matched SKUs between BC and OMINS
-echo "\nMatched SKUs (present in both):" . PHP_EOL;
-$common = array_keys(array_intersect_key($bcMap, $ominsMap));
-print_r($common);
+// List first 10 OMINS codes
+echo PHP_EOL . "First 10 OMINS codes:" . PHP_EOL;
+foreach (array_slice($ominsCodes, 0, 10) as $c) {
+    echo " - {$c}" . PHP_EOL;
+}
 
-echo "\nTotal matches: " . count($common) . PHP_EOL;
+// 5) List matched SKUs
+$common = array_intersect($bcSkus, $ominsCodes);
 
-exit; // debug complete; remove exit to perform real sync
+echo PHP_EOL . "Matched SKUs (present in both):" . PHP_EOL;
+print_r(array_values($common));
+
+echo PHP_EOL . "Total matches: " . count($common) . PHP_EOL;
+
+exit; // debug only
