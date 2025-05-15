@@ -1,4 +1,8 @@
 <?php
+// Wrap output in <pre> so HTML preserves newlines
+header('Content-Type: text/html');
+echo "<pre>";
+
 // sync_full_catalog.php
 // Debug version: shows first 10 BC SKUs and OMINS codes, lists matches with spacing.
 
@@ -102,4 +106,5 @@ print_r(array_values($common));
 
 echo PHP_EOL . "Total matches: " . count($common) . PHP_EOL;
 
+echo "</pre>";
 exit; // debug only
