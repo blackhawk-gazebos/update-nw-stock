@@ -1,6 +1,6 @@
 <?php
 // sync_full_catalog.php
-// Full catalog sync: pulls selected SKUs from BigCommerce, fetches OMINS stock (filtered by term or promo group name wildcard), and updates BC variants.
+// Full catalog sync with debug: pulls BC SKUs, fetches OMINS stock (filtered), lists first 10 OMINS matches, updates BC variants.
 
 header('Content-Type: text/html');
 echo "<pre>";
@@ -19,99 +19,97 @@ $creds  = (object)[
     'password'  => $password,
 ];
 
-// Read optional filters: name wildcard and promo_group name wildcard
-$filter     = isset($_GET['matches'])    ? trim($_GET['matches'])    : '';
-$promoGroup = isset($_GET['promo_group'])? trim($_GET['promo_group']): '';
+// Read optional filters
+$filter     = isset($_GET['matches'])     ? trim($_GET['matches'])       : '';
+$promoGroup = isset($_GET['promo_group']) ? trim($_GET['promo_group'])   : '';
 
 if ($filter !== '') {
-    echo "Filtering BC products by name like '{$filter}'" . PHP_EOL . PHP_EOL;
+    echo "Filtering BC products by name like '{$filter}'" . PHP_EOL;
 }
 if ($promoGroup !== '') {
-    echo "Filtering OMINS products by promo group name like '%{$promoGroup}%'." . PHP_EOL . PHP_EOL;
+    echo "Filtering OMINS products by promo group name like '%{$promoGroup}%'" . PHP_EOL;
 }
+echo PHP_EOL;
 
-// 1) Fetch all BC products with variants in pages, optional BC name filter
+// 1) Fetch BC SKUs
 $storeHash   = getenv('BC_STORE_HASH');
 $allProducts = [];
 $page = 1;
 $bcNameParam = $filter ? '&name:like=' . urlencode($filter) : '';
 do {
     echo "Fetching BC page {$page}..." . PHP_EOL;
-    $url = "https://api.bigcommerce.com/stores/{$storeHash}/v3/catalog/products"
-         . "?include=variants&limit=250&page={$page}{$bcNameParam}";
+    $url = "https://api.bigcommerce.com/stores/{$storeHash}/v3/catalog/products?include=variants&limit=250&page={$page}{$bcNameParam}";
     $resp = bc_request('GET', $url);
     $data = $resp['data'] ?? [];
     $allProducts = array_merge($allProducts, $data);
     $page++;
 } while (count($data) === 250);
 
-echo PHP_EOL . "Total BC products fetched: " . count($allProducts) . PHP_EOL;
+echo PHP_EOL . "Total BC products fetched: " . count($allProducts) . PHP_EOL . PHP_EOL;
 
-// 2) Map BC SKU => [product_id, variant_id]
+// Map BC SKU => IDs
 $bcMap = [];
 foreach ($allProducts as $prod) {
     foreach ($prod['variants'] as $var) {
-        $sku = $var['sku'] ?? '';
-        if ($sku) {
-            $bcMap[$sku] = [
+        if (!empty($var['sku'])) {
+            $bcMap[$var['sku']] = [
                 'product_id' => $prod['id'],
                 'variant_id' => $var['id'],
             ];
         }
     }
 }
+echo "Mapped " . count($bcMap) . " SKUs to BC IDs." . PHP_EOL . PHP_EOL;
 
-echo "Mapped " . count($bcMap) . " SKUs to BC IDs." . PHP_EOL;
-
-// 3) Fetch OMINS stock rows (correct tabledef)
-$stockTableId = 1047;  // OMINS stock table ID
+// 2) Fetch OMINS stock rows
+$stockTableId = 1047;
 $limit        = 1000;
-echo PHP_EOL . "Fetching OMINS stock rows tabledef {$stockTableId}..." . PHP_EOL;
+echo "Fetching OMINS stock rows (tabledef {$stockTableId})..." . PHP_EOL;
 $urlParams = "id={$stockTableId}&limit={$limit}";
 $stockRows = $client->search($creds, ['url_params' => $urlParams]);
-
 if (empty($stockRows)) {
     echo "No stock rows returned from OMINS. Check tabledef and permissions." . PHP_EOL;
     echo "</pre>";
     exit;
 }
-echo "Total OMINS stock rows: " . count($stockRows) . PHP_EOL;
+echo "Total OMINS stock rows: " . count($stockRows) . PHP_EOL . PHP_EOL;
 
-// 4) Build OMINS code=>stock map with promo_group name wildcard filtering
+// 3) Build OMINS map with promo_group filter
 $ominsMap = [];
 foreach ($stockRows as $row) {
     $pid = $row['product_id'] ?? $row['prod_id'] ?? null;
-    if (! $pid) continue;
-    // fetch product to read its code and promo_group_id
+    if (!$pid) continue;
     $product = $client->getProduct($creds, $pid);
     $code    = $product['name'] ?? null;
     $pgId    = $product['promo_group_id'] ?? null;
-    if (! $code || ! $pgId) continue;
-    // if promoGroup text filter provided, check rule name
+    if (!$code || !$pgId) continue;
     if ($promoGroup !== '') {
-        // fetch the promotion rule
         $rule = $client->getPromotionRule($creds, ['id' => $pgId]);
         $ruleName = $rule['name'] ?? '';
-        if (stripos($ruleName, $promoGroup) === false) {
-            continue; // skip if rule name doesn't contain text
-        }
+        if (stripos($ruleName, $promoGroup) === false) continue;
     }
     $ominsMap[$code] = (int)($row['stock'] ?? 0);
 }
-echo "Built OMINS code=>stock map with " . count($ominsMap) . " entries" . PHP_EOL;
 
-// 5) Cross-sync BC variants with OMINS stock
+echo "Built OMINS code=>stock map with " . count($ominsMap) . " entries." . PHP_EOL . PHP_EOL;
+
+// 4) List first 10 OMINS codes after filters
+echo "First 10 OMINS codes (code => stock):" . PHP_EOL;
+$first10Omins = array_slice($ominsMap, 0, 10, true);
+foreach ($first10Omins as $code => $stock) {
+    echo " - {$code} => {$stock}" . PHP_EOL;
+}
+echo PHP_EOL;
+
+// 5) Cross-sync BC variants
 $updated = 0;
 foreach ($bcMap as $sku => $ids) {
-    if (! isset($ominsMap[$sku])) {
-        continue;
-    }
-    $newStock  = $ominsMap[$sku];
-    $resp      = update_variant_stock($ids['product_id'], $ids['variant_id'], $newStock);
+    if (!isset($ominsMap[$sku])) continue;
+    $newStock = $ominsMap[$sku];
+    $resp = update_variant_stock($ids['product_id'], $ids['variant_id'], $newStock);
     $variantId = $resp['data'][0]['id'] ?? 'n/a';
     echo "Synced SKU {$sku} to {$newStock} (variant ID: {$variantId})" . PHP_EOL;
     $updated++;
 }
-
 echo PHP_EOL . "Done. Updated {$updated} variants." . PHP_EOL;
 echo "</pre>";
