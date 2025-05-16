@@ -71,7 +71,7 @@ foreach (array_slice($bcSkus, 0, 10) as $s) {
 
 // 3) Fetch OMINS stock rows
 echo PHP_EOL . "Fetching OMINS stock rows (tabledef 1050)..." . PHP_EOL;
-$stockRows = $client->search($creds, ['url_params' => 'id=1050&limit=1000']);
+$stockRows = $client->search($creds, ['url_params' => 'id=1047&limit=1000']);
 
 echo PHP_EOL . "Raw OMINS stockRows:" . PHP_EOL;
 print_r($stockRows);
