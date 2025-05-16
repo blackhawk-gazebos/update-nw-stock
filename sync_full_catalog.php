@@ -1,6 +1,6 @@
 <?php
 // sync_full_catalog.php
-// Full catalog sync with debug: pulls BC SKUs, fetches OMINS stock (filtered), lists first 10 OMINS matches, updates BC variants.
+// Full catalog sync with debug: pulls BC SKUs, fetches all OMINS stock pages (filtered), lists first 10 OMINS matches, updates BC variants.
 
 header('Content-Type: text/html');
 echo "<pre>";
@@ -27,7 +27,7 @@ if ($filter !== '') {
     echo "Filtering BC products by name like '{$filter}'" . PHP_EOL;
 }
 if ($promoGroup !== '') {
-    echo "Filtering OMINS products by promo group name like '%{$promoGroup}%'" . PHP_EOL;
+    echo "Filtering OMINS products by promo group name like '%{$promoGroup}%'." . PHP_EOL;
 }
 echo PHP_EOL;
 
@@ -47,7 +47,7 @@ do {
 
 echo PHP_EOL . "Total BC products fetched: " . count($allProducts) . PHP_EOL . PHP_EOL;
 
-// Map BC SKU => IDs
+// Map BC SKU => [product_id, variant_id]
 $bcMap = [];
 foreach ($allProducts as $prod) {
     foreach ($prod['variants'] as $var) {
@@ -61,28 +61,34 @@ foreach ($allProducts as $prod) {
 }
 echo "Mapped " . count($bcMap) . " SKUs to BC IDs." . PHP_EOL . PHP_EOL;
 
-// 2) Fetch OMINS stock rows
+// 2) Fetch all OMINS stock rows across pages
 $stockTableId = 1047;
-$limit        = 1000;
-echo "Fetching OMINS stock rows (tabledef {$stockTableId})..." . PHP_EOL;
-$urlParams = "id={$stockTableId}&limit={$limit}";
-$stockRows = $client->search($creds, ['url_params' => $urlParams]);
-if (empty($stockRows)) {
-    echo "No stock rows returned from OMINS. Check tabledef and permissions." . PHP_EOL;
-    echo "</pre>";
-    exit;
-}
-echo "Total OMINS stock rows: " . count($stockRows) . PHP_EOL . PHP_EOL;
+$pageOffset   = 0;
+$limit        = 100;   // adjust page size if needed
+$allStockRows = [];
+echo "Fetching OMINS stock rows (tabledef {$stockTableId}) in pages..." . PHP_EOL;
 
-// 3) Build OMINS map with promo_group filter
+do {
+    $urlParams = "id={$stockTableId}&limit={$limit}&start={$pageOffset}";
+    echo "  - page start={$pageOffset}\n";
+    $rows = $client->search($creds, ['url_params' => $urlParams]);
+    if (!$rows) break;
+    $allStockRows = array_merge($allStockRows, $rows);
+    $fetched = count($rows);
+    $pageOffset += $fetched;
+} while ($fetched === $limit);
+
+echo "Total OMINS stock rows fetched: " . count($allStockRows) . PHP_EOL . PHP_EOL;
+
+// 3) Build OMINS code=>stock map with promo_group filter
 $ominsMap = [];
-foreach ($stockRows as $row) {
+foreach ($allStockRows as $row) {
     $pid = $row['product_id'] ?? $row['prod_id'] ?? null;
     if (!$pid) continue;
     $product = $client->getProduct($creds, $pid);
     $code    = $product['name'] ?? null;
     $pgId    = $product['promo_group_id'] ?? null;
-    if (!$code || !$pgId) continue;
+    if (!$code) continue;
     if ($promoGroup !== '') {
         $rule = $client->getPromotionRule($creds, ['id' => $pgId]);
         $ruleName = $rule['name'] ?? '';
@@ -90,7 +96,6 @@ foreach ($stockRows as $row) {
     }
     $ominsMap[$code] = (int)($row['stock'] ?? 0);
 }
-
 echo "Built OMINS code=>stock map with " . count($ominsMap) . " entries." . PHP_EOL . PHP_EOL;
 
 // 4) List first 10 OMINS codes after filters
