@@ -77,19 +77,21 @@ echo "Mapped " . count($bcMap) . " SKUs to BC IDs." . PHP_EOL . PHP_EOL;
 // 2) Fetch all OMINS stock rows across pages
 $stockTableId = 1047;
 $pageOffset   = 0;
-$limit        = 100;
+$limit        = 200;  // OMINS max page size
 $allStockRows = [];
 echo "Fetching OMINS stock rows (tabledef {$stockTableId}) in pages..." . PHP_EOL;
 
 do {
-    $urlParams = "id={$stockTableId}&limit={$limit}&start={$pageOffset}";
-    echo "  - page start={$pageOffset}\n";
+    // include sort to ensure consistent pagination
+    $urlParams = "id={$stockTableId}&sortit1=product_id&limit={$limit}&start={$pageOffset}";
+    echo "  - page start={$pageOffset}
+";
     $rows = $client->search($creds, ['url_params' => $urlParams]);
     if (!$rows) break;
+    $count = count($rows);
     $allStockRows = array_merge($allStockRows, $rows);
-    $fetched = count($rows);
-    $pageOffset += $fetched;
-} while ($fetched === $limit);
+    $pageOffset += $count;
+} while ($count === $limit);
 
 echo "Total OMINS stock rows fetched: " . count($allStockRows) . PHP_EOL . PHP_EOL;
 
