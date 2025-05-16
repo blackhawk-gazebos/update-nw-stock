@@ -1,6 +1,6 @@
 <?php
 // sync_full_catalog.php
-// Full catalog sync with debug: pulls BC SKUs, fetches all OMINS stock pages (filtered), lists first 10 OMINS matches, updates BC variants.
+// Full catalog sync with debug: improved pagination for BC and OMINS, lists first 10 OMINS matches, updates BC variants.
 
 header('Content-Type: text/html');
 echo "<pre>";
@@ -31,19 +31,32 @@ if ($promoGroup !== '') {
 }
 echo PHP_EOL;
 
-// 1) Fetch BC SKUs
-$storeHash   = getenv('BC_STORE_HASH');
+// 1) Fetch all BC products with variants using proper pagination
+$storeHash = getenv('BC_STORE_HASH');
 $allProducts = [];
 $page = 1;
 $bcNameParam = $filter ? '&name:like=' . urlencode($filter) : '';
-do {
+
+// First page to get total pages
+echo "Fetching BC page 1..." . PHP_EOL;
+$url  = "https://api.bigcommerce.com/stores/{$storeHash}/v3/catalog/products?include=variants&limit=250&page=1{$bcNameParam}";
+$resp = bc_request('GET', $url);
+$data = $resp['data'] ?? [];
+$allProducts = array_merge($allProducts, $data);
+
+// Determine total pages from response meta
+$total_pages = $resp['meta']['pagination']['total_pages'] ?? 1;
+echo "Fetched " . count($data) . " products on page 1 of {$total_pages}." . PHP_EOL;
+
+// Fetch remaining pages
+for ($page = 2; $page <= $total_pages; $page++) {
     echo "Fetching BC page {$page}..." . PHP_EOL;
-    $url = "https://api.bigcommerce.com/stores/{$storeHash}/v3/catalog/products?include=variants&limit=250&page={$page}{$bcNameParam}";
+    $url  = "https://api.bigcommerce.com/stores/{$storeHash}/v3/catalog/products?include=variants&limit=250&page={$page}{$bcNameParam}";
     $resp = bc_request('GET', $url);
     $data = $resp['data'] ?? [];
     $allProducts = array_merge($allProducts, $data);
-    $page++;
-} while (count($data) === 250);
+    echo "Fetched " . count($data) . " products on page {$page}." . PHP_EOL;
+}
 
 echo PHP_EOL . "Total BC products fetched: " . count($allProducts) . PHP_EOL . PHP_EOL;
 
@@ -64,7 +77,7 @@ echo "Mapped " . count($bcMap) . " SKUs to BC IDs." . PHP_EOL . PHP_EOL;
 // 2) Fetch all OMINS stock rows across pages
 $stockTableId = 1047;
 $pageOffset   = 0;
-$limit        = 100;   // adjust page size if needed
+$limit        = 100;
 $allStockRows = [];
 echo "Fetching OMINS stock rows (tabledef {$stockTableId}) in pages..." . PHP_EOL;
 
@@ -110,8 +123,8 @@ echo PHP_EOL;
 $updated = 0;
 foreach ($bcMap as $sku => $ids) {
     if (!isset($ominsMap[$sku])) continue;
-    $newStock = $ominsMap[$sku];
-    $resp = update_variant_stock($ids['product_id'], $ids['variant_id'], $newStock);
+    $newStock  = $ominsMap[$sku];
+    $resp      = update_variant_stock($ids['product_id'], $ids['variant_id'], $newStock);
     $variantId = $resp['data'][0]['id'] ?? 'n/a';
     echo "Synced SKU {$sku} to {$newStock} (variant ID: {$variantId})" . PHP_EOL;
     $updated++;
