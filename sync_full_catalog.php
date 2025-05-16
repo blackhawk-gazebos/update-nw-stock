@@ -1,6 +1,6 @@
 <?php
 // sync_full_catalog.php
-// Full catalog sync: pulls selected SKUs from BigCommerce, fetches OMINS stock, and updates BC variants.
+// Full catalog sync: pulls selected SKUs from BigCommerce, fetches OMINS stock (filtered by term), and updates BC variants.
 
 header('Content-Type: text/html');
 echo "<pre>";
@@ -58,14 +58,24 @@ foreach ($allProducts as $prod) {
 }
 echo "Mapped " . count($bcMap) . " SKUs to BC IDs." . PHP_EOL;
 
-// 3) Fetch OMINS stock rows (correct tabledef)
-$stockTableId = 1047;  // adjust to your actual stock table ID
-$limit = 1000;
+// 3) Fetch OMINS stock rows (correct tabledef), optionally filtered by code wildcard
+$stockTableId = 1047;  // your OMINS stock table ID
+$limit        = 1000;
 echo PHP_EOL . "Fetching OMINS stock rows tabledef {$stockTableId}..." . PHP_EOL;
-$stockRows = $client->search($creds, [ 'url_params' => "id={$stockTableId}&limit={$limit}" ]);
+
+// build url_params string
+$urlParams = "id={$stockTableId}&limit={$limit}";
+if ($filter !== '') {
+    // OMINS uses % as wildcard, wrap filter term
+    $wildcard = "%{$filter}%";
+    $urlParams .= "&name=" . urlencode($wildcard);
+    echo "Filtering OMINS stock rows by name like '{$wildcard}'" . PHP_EOL;
+}
+
+$stockRows = $client->search($creds, [ 'url_params' => $urlParams ]);
 
 if (empty($stockRows)) {
-    echo "No stock rows returned from OMINS. Check tabledef and permissions." . PHP_EOL;
+    echo "No stock rows returned from OMINS. Check tabledef, wildcard, and permissions." . PHP_EOL;
     echo "</pre>";
     exit;
 }
@@ -74,12 +84,8 @@ echo "Total OMINS stock rows: " . count($stockRows) . PHP_EOL;
 // 4) Build OMINS code=>stock map with guard
 $ominsMap = [];
 foreach ($stockRows as $row) {
-    // handle different possible key names for product reference
     $pid = $row['product_id'] ?? $row['prod_id'] ?? null;
-    if (! $pid) {
-        continue;  // skip rows without a valid product ID
-    }
-    // fetch product code/name
+    if (! $pid) continue;
     $prod = $client->getProduct($creds, $pid);
     $code = $prod['name'] ?? null;
     if ($code) {
@@ -95,7 +101,7 @@ foreach ($bcMap as $sku => $ids) {
         continue;
     }
     $newStock = $ominsMap[$sku];
-    $resp = update_variant_stock($ids['product_id'], $ids['variant_id'], $newStock);
+    $resp     = update_variant_stock($ids['product_id'], $ids['variant_id'], $newStock);
     $variantId = $resp['data'][0]['id'] ?? 'n/a';
     echo "Synced SKU {$sku} to {$newStock} (variant ID: {$variantId})" . PHP_EOL;
     $updated++;
