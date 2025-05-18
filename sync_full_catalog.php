@@ -55,11 +55,12 @@ $total = count($bcMap);
 echo "\nTotal BC SKUs to sync: {$total}\n";
 
 // —– Feedback: first 10 BC SKUs —–
+/*
 echo "\nFirst 10 BC SKUs:\n";
 $bcSkus = array_keys($bcMap);
 foreach (array_slice($bcSkus, 0, 10) as $i => $sku) {
     echo sprintf(" %2d. %s\n", $i+1, $sku);
-}
+} */ 
 
 // ——— 2) Lookup in OMINS — collect matches ———
 $foundMap = [];  // sku => instock
@@ -81,12 +82,15 @@ foreach ($bcMap as $sku => $_ids) {
 $matched = count($foundMap);
 echo "\nOMINS SKUs found in BC list: {$matched}\n";
 
+
 // —– Feedback: first 10 matched SKUs —–
+/*
 echo "\nFirst 10 matched SKUs (OMINS → stock):\n";
 $matchedSkus = array_keys($foundMap);
 foreach (array_slice($matchedSkus, 0, 10) as $i => $sku) {
     printf(" %2d. %s => %d\n", $i+1, $sku, $foundMap[$sku]);
 }
+*/
 
 // ——— 3) Push updates to BC ———
 echo "\nSyncing inventory levels:\n";
