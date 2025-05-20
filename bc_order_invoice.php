@@ -1,5 +1,22 @@
 <?php
 // bc_order_invoice.php
+
+// grab raw body
+$raw = file_get_contents('php://input');
+
+// immediately echo it back so Zapier test action will show it
+header('Content-Type: application/json');
+echo json_encode([
+  'received_raw_body' => $raw,
+]);
+
+// stop execution so you’re only debugging the payload
+exit;
+
+// Dump raw request into the logs
+$raw = file_get_contents('php://input');
+error_log("🛎️ Webhook payload: {$raw}");
+
 header('Content-Type: application/json');
 error_reporting(E_ALL);
 ini_set('display_errors','1');
