@@ -1,10 +1,5 @@
 <?php
 // bc_order_invoice.php
-// ———————————————————————————————
-// Receives a BigCommerce order payload via POST,
-// unwraps it, and creates an invoice in OMINS via JSON-RPC.
-// ———————————————————————————————
-
 header('Content-Type: application/json');
 error_reporting(E_ALL);
 ini_set('display_errors','1');
@@ -43,61 +38,66 @@ $creds  = (object)[
     'password' =>$password
 ];
 
-// 5) Build invoice lines from BC items
-$lines = [];
-if (!empty($order['line_items']) && is_array($order['line_items'])) {
-    foreach ($order['line_items'] as $item) {
-        $sku   = $item['sku']   ?? '';
-        $qty   = (int)($item['quantity'] ?? 0);
-        $price = (float)($item['price_inc_tax'] ?? ($item['price_ex_tax'] ?? 0));
-        if (!$sku || $qty < 1) continue;
+// 5) Extract items: prefer V3 `line_items`, else parse V2 `products`
+$items = $order['line_items'] ?? null;
+if (empty($items) && !empty($order['products'])) {
+    // Convert single‐quoted array to valid JSON
+    $json = str_replace("'", '"', $order['products']);
+    $items = json_decode($json, true);
+    error_log("🔄 Parsed V2 `products` into items: " . json_last_error_msg());
+}
 
-        try {
-            // Lookup OMINS product by code/name
-            $meta = $client->getProductbyName($creds, ['name'=>$sku]);
-            if (empty($meta['id'])) {
-                error_log("⚠️ OMINS product not found for SKU {$sku}");
-                continue;
-            }
-            $lines[] = [
-                'product_id' => $meta['id'],
-                'quantity'   => $qty,
-                'unit_price' => $price,
-            ];
-        } catch (Exception $e) {
-            error_log("⚠️ OMINS lookup error for SKU {$sku}: " . $e->getMessage());
+if (empty($items) || !is_array($items)) {
+    error_log("❌ No line items found in payload.");
+    http_response_code(422);
+    echo json_encode(['status'=>'error','message'=>'No line items to invoice']);
+    exit;
+}
+
+// 6) Build invoice lines
+$lines = [];
+foreach ($items as $item) {
+    $sku   = $item['sku'] ?? '';
+    $qty   = (int)($item['quantity'] ?? 0);
+    $price = (float)($item['price_inc_tax'] ?? ($item['price_ex_tax'] ?? 0));
+    if (!$sku || $qty < 1) {
+        error_log("⚠️ Skipping invalid item: " . json_encode($item));
+        continue;
+    }
+    try {
+        $meta = $client->getProductbyName($creds, ['name'=>$sku]);
+        if (empty($meta['id'])) {
+            error_log("⚠️ OMINS product not found for SKU {$sku}");
             continue;
         }
+        $lines[] = [
+            'product_id' => $meta['id'],
+            'quantity'   => $qty,
+            'unit_price' => $price,
+        ];
+    } catch (Exception $e) {
+        error_log("⚠️ Error looking up SKU {$sku}: " . $e->getMessage());
     }
 }
 
 if (empty($lines)) {
+    error_log("❌ No valid invoice lines after lookup.");
     http_response_code(422);
-    echo json_encode(['status'=>'error','message'=>'No valid line items found to invoice']);
+    echo json_encode(['status'=>'error','message'=>'No valid invoice lines']);
     exit;
 }
 
-// 6) Gather shipping & customer info
+// 7) Gather shipping & customer info
 $ship = $order['shipping_address'] ?? [];
-$ship_to_name     = trim(($ship['first_name'] ?? '') . ' ' . ($ship['last_name'] ?? ''));
-$ship_to_address1 = $ship['street_1'] ?? '';
-$ship_to_city     = $ship['city'] ?? '';
-$ship_to_postcode = $ship['zip'] ?? '';
-$ship_to_phone    = $ship['phone'] ?? '';
-$ship_to_email    = $ship['email'] ?? '';
-
-$customerId = (int)($order['customer_id'] ?? 0);
-
-// 7) Build RPC params
 $params = [
-    'customer_id'      => $customerId,
+    'customer_id'      => (int)($order['customer_id'] ?? 0),
     'order_date'       => substr($order['date_created'] ?? '', 0, 10),
-    'ship_to_name'     => $ship_to_name,
-    'ship_to_address1' => $ship_to_address1,
-    'ship_to_city'     => $ship_to_city,
-    'ship_to_postcode' => $ship_to_postcode,
-    'ship_to_phone'    => $ship_to_phone,
-    'ship_to_email'    => $ship_to_email,
+    'ship_to_name'     => trim(($ship['first_name'] ?? '') . ' ' . ($ship['last_name'] ?? '')),
+    'ship_to_address1' => $ship['street_1']  ?? '',
+    'ship_to_city'     => $ship['city']      ?? '',
+    'ship_to_postcode' => $ship['zip']       ?? '',
+    'ship_to_phone'    => $ship['phone']     ?? '',
+    'ship_to_email'    => $ship['email']     ?? '',
     'lines'            => $lines,
     'comments'         => "BigCommerce Order #" . ($order['id'] ?? ''),
 ];
@@ -106,17 +106,10 @@ $params = [
 try {
     $invoice = $client->createInvoice($creds, $params);
     error_log("✅ Created OMINS invoice ID: " . ($invoice['id'] ?? 'n/a'));
-
     http_response_code(200);
-    echo json_encode([
-      'status'     => 'success',
-      'invoice_id' => $invoice['id'] ?? null
-    ]);
+    echo json_encode(['status'=>'success','invoice_id'=>$invoice['id'] ?? null]);
 } catch (Exception $e) {
-    error_log("❌ Failed to create OMINS invoice: " . $e->getMessage());
+    error_log("❌ Failed to create invoice: " . $e->getMessage());
     http_response_code(500);
-    echo json_encode([
-      'status'  => 'error',
-      'message' => $e->getMessage()
-    ]);
+    echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
 }
