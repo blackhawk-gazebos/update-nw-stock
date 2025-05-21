@@ -13,7 +13,7 @@ $creds  = (object)[
 ];
 
 // Replace 1052 with the TableDef ID for Promo Groups in your OMINS install
-$promoTableId = 1052;  
+$promoTableId = 1041;  
 $limit        = 200;
 
 try {
