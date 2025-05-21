@@ -90,20 +90,17 @@ if (empty($lines)) {
 // 7) Gather shipping & customer info
 $ship = $order['shipping_address'] ?? [];
 $params = [
-    'promo_group_id'   => 9,
-    //'customer_id'      => (int)($order['customer_id'] ?? 0),
-    'order_date'       => substr($order['date_created'] ?? '', 0, 10),
-    //'order_date'       => date('d-m-Y', strtotime($order['date_created'])),
-    //'name'             => trim(($ship['first_name'] ?? '') . ' ' . ($ship['last_name'] ?? '')),
-    'name'             => $ship_to_name,        // name="name"
-    'ship_to_address1' => $ship['street_1']  ?? '',
-    //'ship_to_city'     => $ship['city']      ?? '',
-    'city'             => $ship_to_city,
-    'ship_to_postcode' => $ship['zip']       ?? '',
-    'ship_to_phone'    => $ship['phone']     ?? '',
-    'email'            => $ship['email']     ?? '',
-    'lines'            => $lines,
-    'comments'         => "BigCommerce Order #" . ($order['id'] ?? ''),
+  'orderdate'      => $orderDate,           // matches name="orderdate"
+  'name'           => $ship_to_name,        // name="name"
+  'email'          => $ship_to_email,       // name="email"
+  'extrafield_161' => 9,                    // promo group ID
+  'address1'       => $ship_to_address1,    // name="address1"
+  'city'           => $ship_to_city,        // name="city"
+  'postcode'       => $ship_to_postcode,    // name="postcode"
+  'phone'          => $ship_to_phone,       // name="phone"
+  'comments'       => "BC Order #{$orderId}",// name="comments"
+
+  'lines'          => $lines,               // your invoice lines
 ];
 
 // 7.5) DEBUG: log the createOrder params
