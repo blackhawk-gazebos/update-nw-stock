@@ -1,6 +1,6 @@
 <?php
 // bc_order_invoice.php
-// Receives BC order, parses line items, and creates OMINS invoice via JSON-RPC
+// Receives BC order, parses line items, and creates an invoice in OMINS via JSON-RPC
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
@@ -31,9 +31,14 @@ if (isset($data[0]) && is_array($data[0])) {
 
 // 4) Setup OMINS JSON-RPC
 require_once 'jsonRPCClient.php';
-require_once '00_creds.php';
+require_once '00_creds.php';  // $sys_id, $username, $password, $api_url
+
 $client = new jsonRPCClient($api_url, false);
-$creds = (object)['system_id'=>$sys_id,'username'=>$username,'password'=>$password];
+$creds = (object)[
+    'system_id' => $sys_id,
+    'username'  => $username,
+    'password'  => $password
+];
 
 // 5) Parse BC line items (V3) or fallback V2 products string
 $items = $order['line_items'] ?? null;
@@ -56,7 +61,11 @@ foreach ($items as $it) {
     $qty   = (int)($it['quantity'] ?? 0);
     $price = (float)($it['price_inc_tax'] ?? ($it['price_ex_tax'] ?? 0));
     if (!$sku || $qty < 1) continue;
-    $thelineitems[] = ['partnumber'=>$sku,'qty'=>$qty,'unitcost'=>$price];
+    $thelineitems[] = [
+        'partnumber' => $sku,
+        'qty'        => $qty,
+        'unitcost'   => $price
+    ];
 }
 if (empty($thelineitems)) {
     error_log("❌ No valid invoice lines after building partnumbers");
@@ -74,15 +83,18 @@ if (!empty($order['shipping_addresses'])) {
         $shipArr = $tmp[0];
     }
 }
-// Map fields
+
+// Map shipping fields
 $name    = trim(($shipArr['first_name'] ?? '') . ' ' . ($shipArr['last_name'] ?? ''));
 $company = $shipArr['company'] ?? '';
 $address = $shipArr['street_1'] ?? '';
 $city    = $shipArr['city'] ?? '';
 $post    = $shipArr['zip'] ?? '';
 $state   = $shipArr['state'] ?? '';
-$country = $shipArr['country'] ?? '';\$shipInst="";
-$phone   = $shipArr['phone'] ?? '';\$mobile="";
+$country = $shipArr['country'] ?? '';
+$shipInst= '';
+$phone   = $shipArr['phone'] ?? '';
+$mobile  = '';
 $email   = $shipArr['email'] ?? '';
 
 // 8) Format order date
@@ -91,21 +103,21 @@ $orderId   = $order['id'] ?? '';
 
 // 9) Build createOrder params matching form
 $params = [
-    'promo_group_id'=>9,
-    'orderdate'=>$orderDate,
-    'name'=>$name,
-    'company'=>$company,
-    'address'=>$address,
-    'city'=>$city,
-    'postcode'=>$post,
-    'state'=>$state,
-    'country'=>$country,
-    'ship_instructions'=>\$shipInst,
-    'phone'=>$phone,
-    'mobile'=>\$mobile,
-    'email'=>$email,
-    'note'=>"BC Order #{$orderId}",
-    'thelineitems'=>$thelineitems
+    'promo_group_id'   => 9,
+    'orderdate'        => $orderDate,
+    'name'             => $name,
+    'company'          => $company,
+    'address'          => $address,
+    'city'             => $city,
+    'postcode'         => $post,
+    'state'            => $state,
+    'country'          => $country,
+    'ship_instructions'=> $shipInst,
+    'phone'            => $phone,
+    'mobile'           => $mobile,
+    'email'            => $email,
+    'note'             => "BC Order #{$orderId}",
+    'thelineitems'     => $thelineitems
 ];
 
 // 10) Debug output
@@ -122,3 +134,5 @@ try {
     http_response_code(500);
     echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
 }
+
+// EOF
