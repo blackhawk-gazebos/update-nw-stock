@@ -13,7 +13,7 @@ $creds  = (object)[
 ];
 
 // Replace 1052 with your actual Sales Order header tabledef ID
-$tabledef = 1052;
+$tabledef = 1041;
 
 try {
     $fields = $client->search($creds, [
