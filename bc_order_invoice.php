@@ -105,7 +105,7 @@ $params = [
 
 // 8) Call createInvoice
 try {
-    $invoice = $client->createInvoice($creds, $params);
+    $invoice = $client->createOrder($creds, $params);
     error_log("✅ Created OMINS invoice ID: " . ($invoice['id'] ?? 'n/a'));
     http_response_code(200);
     echo json_encode(['status'=>'success','invoice_id'=>$invoice['id'] ?? null]);
