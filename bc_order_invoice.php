@@ -90,6 +90,7 @@ if (empty($lines)) {
 // 7) Gather shipping & customer info
 $ship = $order['shipping_address'] ?? [];
 $params = [
+    'promo_group_id'   => 9,
     'customer_id'      => (int)($order['customer_id'] ?? 0),
     'order_date'       => substr($order['date_created'] ?? '', 0, 10),
     'ship_to_name'     => trim(($ship['first_name'] ?? '') . ' ' . ($ship['last_name'] ?? '')),
