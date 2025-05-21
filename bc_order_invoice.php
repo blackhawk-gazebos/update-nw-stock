@@ -103,6 +103,9 @@ $params = [
     'comments'         => "BigCommerce Order #" . ($order['id'] ?? ''),
 ];
 
+// 7.5) DEBUG: log the createOrder params
+error_log("📤 createOrder params: " . print_r($params, true));
+
 // 8) Call createInvoice
 try {
     $invoice = $client->createOrder($creds, $params);
@@ -113,4 +116,12 @@ try {
     error_log("❌ Failed to create invoice: " . $e->getMessage());
     http_response_code(500);
     echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+}
+
+// 8.5) DEBUG: retrieve and log the new invoice
+try {
+    $fetched = $client->getOrder($creds, ['id' => $invoice['id']]);
+    error_log("📥 Fetched invoice: " . print_r($fetched, true));
+} catch (Exception $e) {
+    error_log("⚠️ Error fetching invoice: " . $e->getMessage());
 }
