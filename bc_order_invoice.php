@@ -95,11 +95,13 @@ $params = [
     'order_date'       => substr($order['date_created'] ?? '', 0, 10),
     //'order_date'       => date('d-m-Y', strtotime($order['date_created'])),
     'name'             => trim(($ship['first_name'] ?? '') . ' ' . ($ship['last_name'] ?? '')),
+    'name'             => $ship_to_name,        // name="name"
     'ship_to_address1' => $ship['street_1']  ?? '',
     'ship_to_city'     => $ship['city']      ?? '',
+    'city'             => $ship_to_city,
     'ship_to_postcode' => $ship['zip']       ?? '',
     'ship_to_phone'    => $ship['phone']     ?? '',
-    'email'    => $ship['email']     ?? '',
+    'email'            => $ship['email']     ?? '',
     'lines'            => $lines,
     'comments'         => "BigCommerce Order #" . ($order['id'] ?? ''),
 ];
