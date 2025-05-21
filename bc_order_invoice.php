@@ -93,7 +93,7 @@ $params = [
   'orderdate'      => $orderDate,           // matches name="orderdate"
   'name'           => $ship_to_name,        // name="name"
   'email'          => $ship_to_email,       // name="email"
-  'extrafield_161' => 9,                    // promo group ID
+  'promo_group_id' => 9,                    // promo group ID
   'address1'       => $ship_to_address1,    // name="address1"
   'city'           => $ship_to_city,        // name="city"
   'postcode'       => $ship_to_postcode,    // name="postcode"
