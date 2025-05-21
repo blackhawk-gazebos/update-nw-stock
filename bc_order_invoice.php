@@ -1,8 +1,10 @@
 <?php
 // bc_order_invoice.php
+// Receives a BigCommerce order payload via Zapier, unwraps it, and creates an invoice in OMINS.
+
 header('Content-Type: application/json');
 error_reporting(E_ALL);
-ini_set('display_errors','1');
+ini_set('display_errors', '1');
 
 // 1) Read & log the raw request
 $raw = file_get_contents('php://input');
@@ -12,7 +14,7 @@ error_log("🛎️ Webhook payload: {$raw}");
 $data = json_decode($raw, true);
 if (json_last_error() !== JSON_ERROR_NONE) {
     http_response_code(400);
-    echo json_encode(['status'=>'error','message'=>'Invalid JSON']);
+    echo json_encode(['status' => 'error', 'message' => 'Invalid JSON']);
     exit;
 }
 
@@ -29,32 +31,31 @@ if (isset($data[0]) && is_array($data[0])) {
 
 // 4) Bootstrap OMINS client
 require_once 'jsonRPCClient.php';
-require_once '00_creds.php';  // defines $sys_id, $username, $password, $api_url
+require_once '00_creds.php';  // $sys_id, $username, $password, $api_url
 
 $client = new jsonRPCClient($api_url, false);
 $creds  = (object)[
-    'system_id'=>$sys_id,
-    'username' =>$username,
-    'password' =>$password
+    'system_id' => $sys_id,
+    'username'  => $username,
+    'password'  => $password,
 ];
 
-// 5) Extract items: prefer V3 `line_items`, else parse V2 `products`
+// 5) Extract items: parse V2 'products' string
 $items = $order['line_items'] ?? null;
 if (empty($items) && !empty($order['products'])) {
-    // Convert single‐quoted array to valid JSON
-    $json = str_replace("'", '"', $order['products']);
-    $items = json_decode($json, true);
-    error_log("🔄 Parsed V2 `products` into items: " . json_last_error_msg());
+    $jsonItems = str_replace("'", '"', $order['products']);
+    $items = json_decode($jsonItems, true);
+    error_log("🔄 Parsed V2 'products' into items: " . json_last_error_msg());
 }
 
 if (empty($items) || !is_array($items)) {
     error_log("❌ No line items found in payload.");
     http_response_code(422);
-    echo json_encode(['status'=>'error','message'=>'No line items to invoice']);
+    echo json_encode(['status' => 'error', 'message' => 'No line items to invoice']);
     exit;
 }
 
-// 6) Build invoice lines
+// 6) Build OMINS invoice lines
 $lines = [];
 foreach ($items as $item) {
     $sku   = $item['sku'] ?? '';
@@ -65,7 +66,7 @@ foreach ($items as $item) {
         continue;
     }
     try {
-        $meta = $client->getProductbyName($creds, ['name'=>$sku]);
+        $meta = $client->getProductbyName($creds, ['name' => $sku]);
         if (empty($meta['id'])) {
             error_log("⚠️ OMINS product not found for SKU {$sku}");
             continue;
@@ -83,45 +84,56 @@ foreach ($items as $item) {
 if (empty($lines)) {
     error_log("❌ No valid invoice lines after lookup.");
     http_response_code(422);
-    echo json_encode(['status'=>'error','message'=>'No valid invoice lines']);
+    echo json_encode(['status' => 'error', 'message' => 'No valid invoice lines']);
     exit;
 }
 
-// 7) Gather shipping & customer info
-$ship = $order['shipping_address'] ?? [];
-$params = [
-  'orderdate'      => $orderDate,           // matches name="orderdate"
-  'sortit4'           => $ship_to_name,        // name="name"
-  'email'          => $ship_to_email,       // name="email"
-  'promo_group_id' => 9,                    // promo group ID
-  'address1'       => $ship_to_address1,    // name="address1"
-  'city'           => $ship_to_city,        // name="city"
-  'postcode'       => $ship_to_postcode,    // name="postcode"
-  'phone'          => $ship_to_phone,       // name="phone"
-  'comments'       => "BC Order #{$orderId}",// name="comments"
+// 7) Parse shipping address from V2 'shipping_addresses'
+$shipArr = [];
+if (!empty($order['shipping_addresses'])) {
+    $jsonShip = str_replace("'", '"', $order['shipping_addresses']);
+    $decoded  = json_decode($jsonShip, true);
+    if (is_array($decoded) && isset($decoded[0])) {
+        $shipArr = $decoded[0];
+    }
+}
 
-  'lines'          => $lines,               // your invoice lines
+$ship_to_name     = trim(($shipArr['first_name'] ?? '') . ' ' . ($shipArr['last_name'] ?? ''));
+$ship_to_address1 = $shipArr['street_1'] ?? '';
+$ship_to_city     = $shipArr['city'] ?? '';
+$ship_to_postcode = $shipArr['zip'] ?? '';
+$ship_to_phone    = $shipArr['phone'] ?? '';
+$ship_to_email    = $shipArr['email'] ?? '';
+
+// 8) Format order date
+$orderDate = date('Y-m-d', strtotime($order['date_created'] ?? ''));
+$orderId   = $order['id'] ?? '';
+
+// 9) Build createOrder parameters
+$params = [
+    'promo_group_id' => 9,
+    'orderdate'      => $orderDate,
+    'sortit4'        => $ship_to_name,
+    'address1'       => $ship_to_address1,
+    'city'           => $ship_to_city,
+    'zip'            => $ship_to_postcode,
+    'phone'          => $ship_to_phone,
+    'email'          => $ship_to_email,
+    'comments'       => "BigCommerce Order #{$orderId}",
+    'lines'          => $lines,
 ];
 
-// 7.5) DEBUG: log the createOrder params
+// 10) Debug log
 error_log("📤 createOrder params: " . print_r($params, true));
 
-// 8) Call createInvoice
+// 11) Call createOrder
 try {
     $invoice = $client->createOrder($creds, $params);
     error_log("✅ Created OMINS invoice ID: " . ($invoice['id'] ?? 'n/a'));
     http_response_code(200);
-    echo json_encode(['status'=>'success','invoice_id'=>$invoice['id'] ?? null]);
+    echo json_encode(['status' => 'success', 'invoice_id' => $invoice['id'] ?? null]);
 } catch (Exception $e) {
     error_log("❌ Failed to create invoice: " . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
-}
-
-// 8.5) DEBUG: retrieve and log the new invoice
-try {
-    $fetched = $client->getOrder($creds, ['id' => $invoice['id']]);
-    error_log("📥 Fetched invoice: " . print_r($fetched, true));
-} catch (Exception $e) {
-    error_log("⚠️ Error fetching invoice: " . $e->getMessage());
+    echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
 }
