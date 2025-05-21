@@ -87,7 +87,9 @@ $shipArr = [];
 if (!empty($order['shipping_addresses'])) {
     $jsonShip = str_replace("'", '"', $order['shipping_addresses']);
     $tmp      = json_decode($jsonShip, true);
-    if (isset($tmp[0])) $shipArr = $tmp[0];
+    if (isset($tmp[0])) {
+        $shipArr = $tmp[0];
+    }
 }
 
 // Map shipping fields
@@ -98,8 +100,9 @@ $city              = $shipArr['city']     ?? '';
 $postcode          = $shipArr['zip']      ?? '';
 $state             = $shipArr['state']    ?? '';
 $country           = $shipArr['country']  ?? '';
-$ship_instructions = '';
-$phone             = $shipArr['phone']    ?? '';\$mobile            = '';
+$ship_instructions = $shipArr['ship_instructions'] ?? '';
+$phone             = $shipArr['phone']    ?? '';
+$mobile            = $shipArr['mobile']   ?? '';
 $email             = $shipArr['email']    ?? '';
 
 // 8) Format date & ID
@@ -108,21 +111,21 @@ $orderId   = $order['id'] ?? '';
 
 // 9) Build createOrder params using form field names
 $params = [
-    'promo_group_id'         => 9,
-    'orderdate'              => $orderDate,
-    'name'                   => $name,
-    'company'                => $company,
-    'address'                => $address,
-    'city'                   => $city,
-    'postcode'               => $postcode,
-    'state'                  => $state,
-    'country'                => $country,
-    'ship_instructions'      => $ship_instructions,
-    'phone'                  => $phone,
-    'mobile'                 => $mobile,
-    'email'                  => $email,
-    'note'                   => "BC Order #{$orderId}",
-    'thelineitems'           => $thelineitems
+    'promo_group_id'    => 9,
+    'orderdate'         => $orderDate,
+    'name'              => $name,
+    'company'           => $company,
+    'address'           => $address,
+    'city'              => $city,
+    'postcode'          => $postcode,
+    'state'             => $state,
+    'country'           => $country,
+    'ship_instructions' => $ship_instructions,
+    'phone'             => $phone,
+    'mobile'            => $mobile,
+    'email'             => $email,
+    'note'              => "BC Order #{$orderId}",
+    'thelineitems'      => $thelineitems
 ];
 
 // 10) Debug
