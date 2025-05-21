@@ -91,14 +91,15 @@ if (empty($lines)) {
 $ship = $order['shipping_address'] ?? [];
 $params = [
     'promo_group_id'   => 9,
-    'customer_id'      => (int)($order['customer_id'] ?? 0),
-    'order_date'       => substr($order['date_created'] ?? '', 0, 10),
-    'ship_to_name'     => trim(($ship['first_name'] ?? '') . ' ' . ($ship['last_name'] ?? '')),
+    //'customer_id'      => (int)($order['customer_id'] ?? 0),
+    //'order_date'       => substr($order['date_created'] ?? '', 0, 10),
+    'order_date'       => date('Y-m-d', strtotime($order['date_created'])),
+    'name'             => trim(($ship['first_name'] ?? '') . ' ' . ($ship['last_name'] ?? '')),
     'ship_to_address1' => $ship['street_1']  ?? '',
     'ship_to_city'     => $ship['city']      ?? '',
     'ship_to_postcode' => $ship['zip']       ?? '',
     'ship_to_phone'    => $ship['phone']     ?? '',
-    'ship_to_email'    => $ship['email']     ?? '',
+    'email'    => $ship['email']     ?? '',
     'lines'            => $lines,
     'comments'         => "BigCommerce Order #" . ($order['id'] ?? ''),
 ];
