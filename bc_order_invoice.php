@@ -91,7 +91,7 @@ if (empty($lines)) {
 $ship = $order['shipping_address'] ?? [];
 $params = [
   'orderdate'      => $orderDate,           // matches name="orderdate"
-  'name'           => $ship_to_name,        // name="name"
+  'sortit4'           => $ship_to_name,        // name="name"
   'email'          => $ship_to_email,       // name="email"
   'promo_group_id' => 9,                    // promo group ID
   'address1'       => $ship_to_address1,    // name="address1"
