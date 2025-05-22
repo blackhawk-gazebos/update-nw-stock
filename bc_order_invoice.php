@@ -122,6 +122,7 @@ $orderId   = $order['id'] ?? '';
 $params = [
     'promo_group_id'    => 9,
     'orderdate'         => $orderDate,
+    'statusdate'      => $orderDate,
     'name'              => $name,
     'company'           => $company,
     'address'           => $address,
