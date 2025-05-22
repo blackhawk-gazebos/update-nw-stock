@@ -73,7 +73,6 @@ if (is_array($items)) {
         }
     }
 }
-
 error_log("📥 Matched lines: " . count($thelineitems));
 error_log("📥 Unmatched SKUs: " . implode(', ', $unmatchedSkus));
 
@@ -96,24 +95,7 @@ if (isset($order['shippingAddressFirstName'])) {
     ];
     error_log("🚚 Parsed Zapier shippingAddress* fields");
 }
-// b) V2 JSON string in shipping_addresses
-elseif (!empty($order['shipping_addresses']) && is_string($order['shipping_addresses'])) {
-    $rawSh = $order['shipping_addresses'];
-    $step1 = preg_replace("/'([^']+)':/", '"$1":', $rawSh);
-    $step2 = preg_replace_callback(
-      "/:\s*'((?:[^'\\]|\\.)*)'/",
-      function($m){ return ': "'. addslashes($m[1]) . '"'; },
-      $step1
-    );
-    $dec = json_decode($step2, true);
-    if (isset($dec[0]) && is_array($dec[0])) {
-        $shipArr = $dec[0];
-        error_log("🚚 Parsed V2 shipping_addresses JSON");
-    } else {
-        error_log("⚠️ shipping_addresses JSON invalid: " . json_last_error_msg());
-    }
-}
-// c) Fallback to billing_address
+// b) Fallback to billing_address
 if (empty($shipArr) && !empty($order['billing_address']) && is_array($order['billing_address'])) {
     $shipArr = $order['billing_address'];
     error_log("🚚 Using billing_address fallback");
