@@ -91,17 +91,28 @@ error_log("📥 Unmatched SKUs: " . implode(', ', $unmatchedSkus));
 // 7) Map shipping fields: handle JSON string or already‐decoded array
 $shipArr = [];
 
-// a) If shipping_addresses is a string (V2 payload)
+// a) If shipping_addresses is a PHP-style single-quoted array
 if (!empty($order['shipping_addresses']) && is_string($order['shipping_addresses'])) {
-    // Replace single quotes with double quotes
-    $json = str_replace("'", '"', $order['shipping_addresses']);
-    // Decode into PHP array
-    $decoded = json_decode($json, true);
+    $raw = $order['shipping_addresses'];
+
+    // 1) Turn 'key': into "key":
+    $step1 = preg_replace("/'([^']+?)'\s*:/", '"$1":', $raw);
+
+    // 2) Turn : 'value' into : "value", allowing apostrophes inside the value
+    $step2 = preg_replace_callback(
+      "/:\s*'((?:[^'\\\\]|\\\\.)*)'/",
+      function($m){ return ': "' . addslashes($m[1]) . '"'; },
+      $step1
+    );
+
+    // 3) Now JSON-decode
+    $decoded = json_decode($step2, true);
+
     if (json_last_error() === JSON_ERROR_NONE && isset($decoded[0]) && is_array($decoded[0])) {
         $shipArr = $decoded[0];
-        error_log("🚚 Parsed shipping_addresses JSON into array");
+        error_log("🚚 Parsed shipping_addresses JSON correctly");
     } else {
-        error_log("⚠️ Failed to decode shipping_addresses JSON: " . json_last_error_msg());
+        error_log("⚠️ shipping_addresses JSON still invalid: " . json_last_error_msg());
     }
 }
 
