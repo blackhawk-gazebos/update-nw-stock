@@ -47,7 +47,7 @@ $creds  = (object)['system_id'=>$sys_id,'username'=>$username,'password'=>$passw
 // 5) Parse BC line items (V3) or fallback V2 products string
 $items = $order['line_items'] ?? null;
 if (empty($items) && !empty($order['products'])) {
-    $jsonItems = str_replace("'","\"", $order['products']);
+    $jsonItems = str_replace("'", '"', $order['products']);
     $items = json_decode($jsonItems, true);
     error_log("🔄 Parsed V2 products: " . json_last_error_msg());
 }
@@ -63,7 +63,7 @@ if (is_array($items)) {
 
 // 6) Build invoice detail rows: lookup each SKU in OMINS
 $thelineitems = [];
-unmatchedSkus = [];
+$unmatchedSkus = [];  // <--- fixed: added $
 if (is_array($items)) {
     foreach ($items as $it) {
         $sku   = trim($it['sku'] ?? '');
@@ -93,7 +93,7 @@ error_log("📥 Unmatched SKUs: " . implode(', ', $unmatchedSkus));
 // 7) Parse shipping address
 $shipArr = [];
 if (!empty($order['shipping_addresses'])) {
-    $jsonShip = str_replace("'","\"", $order['shipping_addresses']);
+    $jsonShip = str_replace("'", '"', $order['shipping_addresses']);
     $tmp      = json_decode($jsonShip, true);
     if (!empty($tmp[0]) && is_array($tmp[0])) {
         $shipArr = $tmp[0];
