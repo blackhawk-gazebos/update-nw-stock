@@ -38,13 +38,21 @@ if (isset($data[0]) && is_array($data[0])) {
     $order = $data;
 }
 
-// 4) Setup OMINS RPC client
+// 4) Flatten shipping_addresses into top‐level keys prefixed 'shipping_addresses_'
+if (!empty($order['shipping_addresses']) && is_array($order['shipping_addresses'][0])) {
+    foreach ($order['shipping_addresses'][0] as $key => $val) {
+        $order["shipping_addresses_{$key}"] = $val;
+    }
+    error_log("📦 Flattened shipping_addresses into order array");
+}
+
+// 5) Setup OMINS RPC client
 require_once 'jsonRPCClient.php';
 require_once '00_creds.php'; // $sys_id, $username, $password, $api_url
 $client = new jsonRPCClient($api_url, false);
-$creds  = (object)[ 'system_id'=>$sys_id, 'username'=>$username, 'password'=>$password ];
+$creds  = (object)['system_id'=>$sys_id,'username'=>$username,'password'=>$password];
 
-// 5) Parse BC line items (V3) or fallback V2 products string
+// 6) Parse BC line items (V3) or fallback V2 products string
 $items = $order['line_items'] ?? null;
 if (empty($items) && !empty($order['products'])) {
     $jsonItems = str_replace("'", '"', $order['products']);
@@ -52,7 +60,7 @@ if (empty($items) && !empty($order['products'])) {
     error_log("🔄 Parsed V2 products: " . json_last_error_msg());
 }
 
-// 6) Build invoice detail rows
+// 7) Build invoice detail rows
 $thelineitems = [];
 $unmatchedSkus = [];
 if (is_array($items)) {
@@ -76,43 +84,19 @@ if (is_array($items)) {
 error_log("📥 Matched lines: " . count($thelineitems));
 error_log("📥 Unmatched SKUs: " . implode(', ', $unmatchedSkus));
 
-// 7) Determine shipping address
-$shipArr = [];
-// a) Zapier flat shippingAddress* fields
-if (isset($order['shippingAddressFirstName'])) {
-    $shipArr = [
-        'first_name' => $order['shippingAddressFirstName'],
-        'last_name'  => $order['shippingAddressLastName'] ?? '',
-        'company'    => $order['shippingAddressCompany'] ?? '',
-        'street_1'   => $order['shippingAddressStreet1'] ?? '',
-        'street_2'   => $order['shippingAddressStreet2'] ?? '',
-        'city'       => $order['shippingAddressCity'] ?? '',
-        'state'      => $order['shippingAddressState'] ?? '',
-        'zip'        => $order['shippingAddressZip'] ?? '',
-        'country'    => $order['shippingAddressCountry'] ?? '',
-        'email'      => $order['shippingAddressEmail'] ?? '',
-        'phone'      => $order['shippingAddressPhone'] ?? ''
-    ];
-    error_log("🚚 Parsed Zapier shippingAddress* fields");
-}
-// b) Fallback to billing_address
-if (empty($shipArr) && !empty($order['billing_address']) && is_array($order['billing_address'])) {
-    $shipArr = $order['billing_address'];
-    error_log("🚚 Using billing_address fallback");
-}
+// 8) Map shipping vars identical to billing_address structure
+$name    = trim(($order['shipping_addresses_first_name'] ?? $order['billing_address']['first_name'] ?? '')
+               . ' ' . ($order['shipping_addresses_last_name'] ?? $order['billing_address']['last_name'] ?? ''));
+$company = $order['shipping_addresses_company'] ?? $order['billing_address']['company'] ?? '';
+$address = $order['shipping_addresses_street_1'] ?? $order['billing_address']['street_1'] ?? '';
+$city    = $order['shipping_addresses_city'] ?? $order['billing_address']['city'] ?? '';
+$post    = $order['shipping_addresses_zip'] ?? $order['billing_address']['zip'] ?? '';
+$state   = $order['shipping_addresses_state'] ?? $order['billing_address']['state'] ?? '';
+$country = $order['shipping_addresses_country'] ?? $order['billing_address']['country'] ?? '';
+$phone   = $order['shipping_addresses_phone'] ?? $order['billing_address']['phone'] ?? '';
+$email   = $order['shipping_addresses_email'] ?? $order['billing_address']['email'] ?? '';
 
-// 8) Map shipping vars
-$name    = trim(($shipArr['first_name'] ?? '') . ' ' . ($shipArr['last_name'] ?? ''));
-$company = $shipArr['company']  ?? '';
-$address = $shipArr['street_1'] ?? '';
-$city    = $shipArr['city']     ?? '';
-$post    = $shipArr['zip']      ?? '';
-$state   = $shipArr['state']    ?? '';
-$country = $shipArr['country']  ?? '';
-$phone   = $shipArr['phone']    ?? '';
-$email   = $shipArr['email']    ?? '';
-
-// 9) Format order date and get ID
+// 9) Format order date & get ID
 $orderDate = date('Y-m-d', strtotime($order['date_created'] ?? ''));
 $orderId   = $order['id'] ?? '';
 
@@ -135,8 +119,7 @@ $params = [
     'thelineitems'=> $thelineitems
 ];
 if (!empty($unmatchedSkus)) {
-    $append = "Unmatched SKUs: " . implode(', ', $unmatchedSkus);
-    $params['note'] .= " | {$append}";
+    $params['note'] .= ' | Unmatched SKUs: ' . implode(', ', $unmatchedSkus);
 }
 error_log("📤 createOrder params: " . print_r($params, true));
 
