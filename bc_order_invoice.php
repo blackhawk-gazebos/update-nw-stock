@@ -88,20 +88,40 @@ if (is_array($items)) {
 error_log("📥 Matched line items: " . count($thelineitems));
 error_log("📥 Unmatched SKUs: " . implode(', ', $unmatchedSkus));
 
-// 7) Map shipping fields: use decoded shipping_addresses or fallback to billing_address
+// 7) Map shipping fields: handle JSON string or already‐decoded array
 $shipArr = [];
-if (!empty($order['shipping_addresses'])) {
-    $jsonShip = str_replace("'","\"", $order['shipping_addresses']);
-    $tmp      = json_decode($jsonShip, true);
-    if (!empty($tmp[0]) && is_array($tmp[0])) {
-        $shipArr = $tmp[0];
-        error_log("🚚 Parsed V2 shipping address");
+
+// a) If shipping_addresses is a string (V2 payload)
+if (!empty($order['shipping_addresses']) && is_string($order['shipping_addresses'])) {
+    // Replace single quotes with double quotes
+    $json = str_replace("'", '"', $order['shipping_addresses']);
+    // Decode into PHP array
+    $decoded = json_decode($json, true);
+    if (json_last_error() === JSON_ERROR_NONE && isset($decoded[0]) && is_array($decoded[0])) {
+        $shipArr = $decoded[0];
+        error_log("🚚 Parsed shipping_addresses JSON into array");
+    } else {
+        error_log("⚠️ Failed to decode shipping_addresses JSON: " . json_last_error_msg());
     }
 }
+
+// b) If shipping_addresses is already an array of arrays (V3/Zapier)
+elseif (!empty($order['shipping_addresses']) && is_array($order['shipping_addresses'])) {
+    // The first numeric key holds the address object
+    $first = reset($order['shipping_addresses']);
+    if (is_array($first)) {
+        $shipArr = $first;
+        error_log("🚚 Parsed shipping_addresses array");
+    }
+}
+
+// c) Fallback to billing_address if nothing above worked
 if (empty($shipArr) && !empty($order['billing_address']) && is_array($order['billing_address'])) {
     $shipArr = $order['billing_address'];
     error_log("🚚 Using billing_address fallback");
 }
+
+// Now $shipArr has the same structure you used for billing_address:
 $name               = trim(($shipArr['first_name'] ?? '') . ' ' . ($shipArr['last_name'] ?? ''));
 $company            = $shipArr['company']  ?? '';
 $address            = $shipArr['street_1'] ?? '';
