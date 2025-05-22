@@ -1,6 +1,6 @@
 <?php
 // bc_order_invoice.php
-// Receives BC order, parses line items, and creates an invoice in OMINS via JSON-RPC
+// Receives BC order, parses line items (optional), and creates an invoice in OMINS via JSON-RPC
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
@@ -47,31 +47,27 @@ if (empty($items) && !empty($order['products'])) {
     $items = json_decode($jsonItems, true);
     error_log("🔄 Parsed V2 products: " . json_last_error_msg());
 }
-if (empty($items) || !is_array($items)) {
-    error_log("❌ No line items found");
-    http_response_code(422);
-    echo json_encode(['status'=>'error','message'=>'No line items']);
-    exit;
+
+// 6) Build invoice detail rows using partnumber (optional)
+$thelineitems = [];
+if (is_array($items)) {
+    foreach ($items as $it) {
+        $sku   = trim($it['sku'] ?? '');
+        $qty   = (int)($it['quantity'] ?? 0);
+        $price = (float)($it['price_inc_tax'] ?? ($it['price_ex_tax'] ?? 0));
+        if ($sku && $qty > 0) {
+            $thelineitems[] = [
+                'partnumber' => $sku,
+                'qty'        => $qty,
+                'unitcost'   => $price
+            ];
+        }
+    }
 }
 
-// 6) Build invoice detail rows using partnumber
-$thelineitems = [];
-foreach ($items as $it) {
-    $sku   = trim($it['sku'] ?? '');
-    $qty   = (int)($it['quantity'] ?? 0);
-    $price = (float)($it['price_inc_tax'] ?? ($it['price_ex_tax'] ?? 0));
-    if (!$sku || $qty < 1) continue;
-    $thelineitems[] = [
-        'partnumber' => $sku,
-        'qty'        => $qty,
-        'unitcost'   => $price
-    ];
-}
 if (empty($thelineitems)) {
-    error_log("❌ No valid invoice lines after building partnumbers");
-    http_response_code(422);
-    echo json_encode(['status'=>'error','message'=>'No valid invoice lines']);
-    exit;
+    error_log("⚠️ No invoice lines found, creating an empty invoice.");
+    // proceed without exiting, invoice header only
 }
 
 // 7) Parse shipping address from V2 shipping_addresses array
@@ -85,39 +81,39 @@ if (!empty($order['shipping_addresses'])) {
 }
 
 // Map shipping fields
-$name    = trim(($shipArr['first_name'] ?? '') . ' ' . ($shipArr['last_name'] ?? ''));
-$company = $shipArr['company'] ?? '';
-$address = $shipArr['street_1'] ?? '';
-$city    = $shipArr['city'] ?? '';
-$post    = $shipArr['zip'] ?? '';
-$state   = $shipArr['state'] ?? '';
-$country = $shipArr['country'] ?? '';
-$shipInst= '';
-$phone   = $shipArr['phone'] ?? '';
-$mobile  = '';
-$email   = $shipArr['email'] ?? '';
+$name               = trim(($shipArr['first_name'] ?? '') . ' ' . ($shipArr['last_name'] ?? ''));
+$company            = $shipArr['company']  ?? '';
+$address            = $shipArr['street_1'] ?? '';
+$city               = $shipArr['city']     ?? '';
+$postcode           = $shipArr['zip']      ?? '';
+$state              = $shipArr['state']    ?? '';
+$country            = $shipArr['country']  ?? '';
+$ship_instructions  = '';
+$phone              = $shipArr['phone']    ?? '';
+$mobile             = '';
+$email              = $shipArr['email']    ?? '';
 
-// 8) Format order date
+// 8) Format order date & retrieve order ID
 $orderDate = date('Y-m-d', strtotime($order['date_created'] ?? ''));
 $orderId   = $order['id'] ?? '';
 
-// 9) Build createOrder params matching form
+// 9) Build createOrder params matching OMINS form field names
 $params = [
-    'promo_group_id'   => 9,
-    'orderdate'        => $orderDate,
-    'name'             => $name,
-    'company'          => $company,
-    'address'          => $address,
-    'city'             => $city,
-    'postcode'         => $post,
-    'state'            => $state,
-    'country'          => $country,
-    'ship_instructions'=> $shipInst,
-    'phone'            => $phone,
-    'mobile'           => $mobile,
-    'email'            => $email,
-    'note'             => "BC Order #{$orderId}",
-    'thelineitems'     => $thelineitems
+    'promo_group_id'    => 9,
+    'orderdate'         => $orderDate,
+    'name'              => $name,
+    'company'           => $company,
+    'address'           => $address,
+    'city'              => $city,
+    'postcode'          => $postcode,
+    'state'             => $state,
+    'country'           => $country,
+    'ship_instructions' => $ship_instructions,
+    'phone'             => $phone,
+    'mobile'            => $mobile,
+    'email'             => $email,
+    'note'              => "BC Order #{$orderId}",
+    'thelineitems'      => $thelineitems
 ];
 
 // 10) Debug output
