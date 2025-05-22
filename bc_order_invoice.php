@@ -1,10 +1,19 @@
 <?php
 // bc_order_invoice.php
-// Receives BC order, parses line items (optional), and creates an invoice in OMINS via JSON-RPC
+// Secured endpoint: Receives BC order, parses line items (optional), and creates an invoice in OMINS via JSON-RPC
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
 ini_set('display_errors', '1');
+
+// 0) Security: verify secret token
+$secret = getenv('WEBHOOK_SECRET');
+$token  = $_SERVER['HTTP_X_WEBHOOK_TOKEN'] ?? null;
+if (!$secret || !$token || !hash_equals($secret, $token)) {
+    http_response_code(403);
+    echo json_encode(['status'=>'error','message'=>'Forbidden']);
+    exit;
+}
 
 // 1) Read & log raw payload
 $raw = file_get_contents('php://input');
@@ -34,11 +43,7 @@ require_once 'jsonRPCClient.php';
 require_once '00_creds.php';  // $sys_id, $username, $password, $api_url
 
 $client = new jsonRPCClient($api_url, false);
-$creds = (object)[
-    'system_id' => $sys_id,
-    'username'  => $username,
-    'password'  => $password
-];
+$creds  = (object)['system_id'=>$sys_id,'username'=>$username,'password'=>$password];
 
 // 5) Parse BC line items (V3) or fallback V2 products string
 $items = $order['line_items'] ?? null;
@@ -48,7 +53,7 @@ if (empty($items) && !empty($order['products'])) {
     error_log("🔄 Parsed V2 products: " . json_last_error_msg());
 }
 
-// 6) Build invoice detail rows using partnumber (optional)
+// 6) Build invoice detail rows using partnumber
 $thelineitems = [];
 if (is_array($items)) {
     foreach ($items as $it) {
@@ -56,48 +61,43 @@ if (is_array($items)) {
         $qty   = (int)($it['quantity'] ?? 0);
         $price = (float)($it['price_inc_tax'] ?? ($it['price_ex_tax'] ?? 0));
         if ($sku && $qty > 0) {
-            $thelineitems[] = [
-                'partnumber' => $sku,
-                'qty'        => $qty,
-                'unitcost'   => $price
-            ];
+            $thelineitems[] = ['partnumber'=>$sku,'qty'=>$qty,'unitcost'=>$price];
         }
     }
 }
 
 if (empty($thelineitems)) {
     error_log("⚠️ No invoice lines found, creating an empty invoice.");
-    // proceed without exiting, invoice header only
 }
 
-// 7) Parse shipping address from V2 shipping_addresses array
+// 7) Parse shipping address
 $shipArr = [];
 if (!empty($order['shipping_addresses'])) {
     $jsonShip = str_replace("'", '"', $order['shipping_addresses']);
-    $tmp = json_decode($jsonShip, true);
+    $tmp      = json_decode($jsonShip, true);
     if (!empty($tmp[0]) && is_array($tmp[0])) {
         $shipArr = $tmp[0];
     }
 }
 
 // Map shipping fields
-$name               = trim(($shipArr['first_name'] ?? '') . ' ' . ($shipArr['last_name'] ?? ''));
-$company            = $shipArr['company']  ?? '';
-$address            = $shipArr['street_1'] ?? '';
-$city               = $shipArr['city']     ?? '';
-$postcode           = $shipArr['zip']      ?? '';
-$state              = $shipArr['state']    ?? '';
-$country            = $shipArr['country']  ?? '';
-$ship_instructions  = '';
-$phone              = $shipArr['phone']    ?? '';
-$mobile             = '';
-$email              = $shipArr['email']    ?? '';
+$name              = trim(($shipArr['first_name'] ?? '') . ' ' . ($shipArr['last_name'] ?? ''));
+$company           = $shipArr['company']  ?? '';
+$address           = $shipArr['street_1'] ?? '';
+$city              = $shipArr['city']     ?? '';
+$postcode          = $shipArr['zip']      ?? '';
+$state             = $shipArr['state']    ?? '';
+$country           = $shipArr['country']  ?? '';
+$ship_instructions = '';
+$phone             = $shipArr['phone']    ?? '';
+$mobile            = '';
+$email             = $shipArr['email']    ?? '';
 
 // 8) Format order date & retrieve order ID
 $orderDate = date('Y-m-d', strtotime($order['date_created'] ?? ''));
 $orderId   = $order['id'] ?? '';
 
-// 9) Build createOrder params matching OMINS form field names
+// 9) Build createOrder params
 $params = [
     'promo_group_id'    => 9,
     'orderdate'         => $orderDate,
