@@ -38,12 +38,17 @@ if (isset($data[0]) && is_array($data[0])) {
     $order = $data;
 }
 
-// 4) Flatten shipping_addresses into top‐level keys prefixed 'shipping_addresses_'
+// 4) Flatten shipping_addresses into top‐level keys
 if (!empty($order['shipping_addresses']) && is_array($order['shipping_addresses'][0])) {
     foreach ($order['shipping_addresses'][0] as $key => $val) {
         $order["shipping_addresses_{$key}"] = $val;
     }
     error_log("📦 Flattened shipping_addresses into order array");
+}
+
+// detect fallback to billing
+if (!isset($order['shipping_addresses_first_name'])) {
+    error_log("🚚 Falling back to billing_address for shipping info");
 }
 
 // 5) Setup OMINS RPC client
@@ -60,7 +65,7 @@ if (empty($items) && !empty($order['products'])) {
     error_log("🔄 Parsed V2 products: " . json_last_error_msg());
 }
 
-// 7) Build invoice detail rows
+// 7) Build invoice detail rows with correct field names
 $thelineitems = [];
 $unmatchedSkus = [];
 if (is_array($items)) {
@@ -72,7 +77,12 @@ if (is_array($items)) {
         try {
             $meta = $client->getProductbyName($creds, ['name'=>$sku]);
             if (!empty($meta['id'])) {
-                $thelineitems[] = ['partnumber'=>$sku,'qty'=>$qty,'unitcost'=>$price];
+                // use OMINS field names: ds-partnumber, qty, price
+                $thelineitems[] = [
+                    'ds-partnumber' => $sku,
+                    'qty'           => $qty,
+                    'price'         => $price
+                ];
             } else {
                 $unmatchedSkus[] = $sku;
             }
@@ -85,53 +95,53 @@ error_log("📥 Matched lines: " . count($thelineitems));
 error_log("📥 Unmatched SKUs: " . implode(', ', $unmatchedSkus));
 
 // 8) Map shipping vars identical to billing_address structure
-$name    = trim(($order['shipping_addresses_first_name'] ?? $order['billing_address']['first_name'] ?? '')
-               . ' ' . ($order['shipping_addresses_last_name'] ?? $order['billing_address']['last_name'] ?? ''));
-$company = $order['shipping_addresses_company'] ?? $order['billing_address']['company'] ?? '';
-$address = $order['shipping_addresses_street_1'] ?? $order['billing_address']['street_1'] ?? '';
-$city    = $order['shipping_addresses_city'] ?? $order['billing_address']['city'] ?? '';
-$post    = $order['shipping_addresses_zip'] ?? $order['billing_address']['zip'] ?? '';
-$state   = $order['shipping_addresses_state'] ?? $order['billing_address']['state'] ?? '';
-$country = $order['shipping_addresses_country'] ?? $order['billing_address']['country'] ?? '';
-$phone   = $order['shipping_addresses_phone'] ?? $order['billing_address']['phone'] ?? '';
-$email   = $order['shipping_addresses_email'] ?? $order['billing_address']['email'] ?? '';
+$name    = trim((\$order['shipping_addresses_first_name'] ?? \$order['billing_address']['first_name'] ?? '')
+               . ' ' . (\$order['shipping_addresses_last_name'] ?? \$order['billing_address']['last_name'] ?? ''));
+$company = \$order['shipping_addresses_company'] ?? \$order['billing_address']['company'] ?? '';
+$address = \$order['shipping_addresses_street_1'] ?? \$order['billing_address']['street_1'] ?? '';
+$city    = \$order['shipping_addresses_city'] ?? \$order['billing_address']['city'] ?? '';
+$post    = \$order['shipping_addresses_zip'] ?? \$order['billing_address']['zip'] ?? '';
+$state   = \$order['shipping_addresses_state'] ?? \$order['billing_address']['state'] ?? '';
+$country = \$order['shipping_addresses_country'] ?? \$order['billing_address']['country'] ?? '';
+$phone   = \$order['shipping_addresses_phone'] ?? \$order['billing_address']['phone'] ?? '';
+$email   = \$order['shipping_addresses_email'] ?? \$order['billing_address']['email'] ?? '';
 
 // 9) Format order date & get ID
-$orderDate = date('Y-m-d', strtotime($order['date_created'] ?? ''));
-$orderId   = $order['id'] ?? '';
+$orderDate = date('Y-m-d', strtotime(\$order['date_created'] ?? ''));
+$orderId   = \$order['id'] ?? '';
 
 // 10) Build createOrder params
 $params = [
-    'promo_group_id'=>9,
-    'orderdate'=> $orderDate,
-    'name'=> $name,
-    'company'=> $company,
-    'address'=> $address,
-    'city'=> $city,
-    'postcode'=> $post,
-    'state'=> $state,
-    'country'=> $country,
+    'promo_group_id'   => 9,
+    'orderdate'        => \$orderDate,
+    'name'             => \$name,
+    'company'          => \$company,
+    'address'          => \$address,
+    'city'             => \$city,
+    'postcode'         => \$post,
+    'state'            => \$state,
+    'country'          => \$country,
     'ship_instructions'=> '',
-    'phone'=> $phone,
-    'mobile'=> $phone,
-    'email'=> $email,
-    'note'=> "BC Order #{$orderId}",
-    'thelineitems'=> $thelineitems
+    'phone'            => \$phone,
+    'mobile'           => \$phone,
+    'email'            => \$email,
+    'note'             => "BC Order #{\$orderId}",
+    'thelineitems'     => \$thelineitems
 ];
-if (!empty($unmatchedSkus)) {
-    $params['note'] .= ' | Unmatched SKUs: ' . implode(', ', $unmatchedSkus);
+if (!empty(\$unmatchedSkus)) {
+    \$params['note'] .= ' | Unmatched SKUs: ' . implode(', ', \$unmatchedSkus);
 }
-error_log("📤 createOrder params: " . print_r($params, true));
+error_log("📤 createOrder params: " . print_r(\$params, true));
 
 // 11) Call createOrder
 try {
-    $inv = $client->createOrder($creds, $params);
-    error_log("✅ Invoice created ID: " . ($inv['id'] ?? 'n/a'));
-    echo json_encode(['status'=>'success','invoice_id'=>$inv['id'] ?? null]);
-} catch (Exception $e) {
-    error_log("❌ createOrder error: " . $e->getMessage());
+    \$inv = \$client->createOrder(\$creds, \$params);
+    error_log("✅ Invoice created ID: " . (\$inv['id'] ?? 'n/a'));
+    echo json_encode(['status'=>'success','invoice_id'=>\$inv['id'] ?? null]);
+} catch (Exception \$e) {
+    error_log("❌ createOrder error: " . \$e->getMessage());
     http_response_code(500);
-    echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+    echo json_encode(['status'=>'error','message'=>\$e->getMessage()]);
 }
 
 // EOF
