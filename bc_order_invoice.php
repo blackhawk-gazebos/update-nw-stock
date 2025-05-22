@@ -47,7 +47,7 @@ $creds  = (object)['system_id'=>$sys_id,'username'=>$username,'password'=>$passw
 // 5) Parse BC line items (V3) or fallback V2 products string
 $items = $order['line_items'] ?? null;
 if (empty($items) && !empty($order['products'])) {
-    $jsonItems = str_replace("'", '"', $order['products']);
+    $jsonItems = str_replace("'","\"", $order['products']);
     $items = json_decode($jsonItems, true);
     error_log("🔄 Parsed V2 products: " . json_last_error_msg());
 }
@@ -63,14 +63,13 @@ if (is_array($items)) {
 
 // 6) Build invoice detail rows: lookup each SKU in OMINS
 $thelineitems = [];
-$unmatchedSkus = [];  // <--- fixed: added $
+$unmatchedSkus = [];
 if (is_array($items)) {
     foreach ($items as $it) {
         $sku   = trim($it['sku'] ?? '');
         $qty   = (int)($it['quantity'] ?? 0);
         $price = (float)($it['price_inc_tax'] ?? ($it['price_ex_tax'] ?? 0));
         if (!$sku || $qty < 1) continue;
-
         try {
             $meta = $client->getProductbyName($creds, ['name'=>$sku]);
             if (!empty($meta['id'])) {
@@ -86,31 +85,34 @@ if (is_array($items)) {
         }
     }
 }
-
 error_log("📥 Matched line items: " . count($thelineitems));
 error_log("📥 Unmatched SKUs: " . implode(', ', $unmatchedSkus));
 
-// 7) Parse shipping address
+// 7) Map shipping fields: use decoded shipping_addresses or fallback to billing_address
 $shipArr = [];
 if (!empty($order['shipping_addresses'])) {
-    $jsonShip = str_replace("'", '"', $order['shipping_addresses']);
+    $jsonShip = str_replace("'","\"", $order['shipping_addresses']);
     $tmp      = json_decode($jsonShip, true);
     if (!empty($tmp[0]) && is_array($tmp[0])) {
         $shipArr = $tmp[0];
+        error_log("🚚 Parsed V2 shipping address");
     }
 }
-// Map shipping fields
-$name              = trim(($shipArr['first_name'] ?? '') . ' ' . ($shipArr['last_name'] ?? ''));
-$company           = $shipArr['company']  ?? '';
-$address           = $shipArr['street_1'] ?? '';
-$city              = $shipArr['city']     ?? '';
-$postcode          = $shipArr['zip']      ?? '';
-$state             = $shipArr['state']    ?? '';
-$country           = $shipArr['country']  ?? '';
-$ship_instructions = '';
-$phone             = $shipArr['phone']    ?? '';
-$mobile            = '';
-$email             = $shipArr['email']    ?? '';
+if (empty($shipArr) && !empty($order['billing_address']) && is_array($order['billing_address'])) {
+    $shipArr = $order['billing_address'];
+    error_log("🚚 Using billing_address fallback");
+}
+$name               = trim(($shipArr['first_name'] ?? '') . ' ' . ($shipArr['last_name'] ?? ''));
+$company            = $shipArr['company']  ?? '';
+$address            = $shipArr['street_1'] ?? '';
+$city               = $shipArr['city']     ?? '';
+$postcode           = $shipArr['zip']      ?? '';
+$state              = $shipArr['state']    ?? '';
+$country            = $shipArr['country']  ?? '';
+$ship_instructions  = $shipArr['shipping_method'] ?? '';
+$phone              = $shipArr['phone']    ?? '';
+$mobile             = $shipArr['phone']    ?? '';
+$email              = $shipArr['email']    ?? '';
 
 // 8) Format order date & retrieve order ID
 $orderDate = date('Y-m-d', strtotime($order['date_created'] ?? ''));
@@ -118,24 +120,23 @@ $orderId   = $order['id'] ?? '';
 
 // 9) Build createOrder params
 $params = [
-    'promo_group_id'=>9,
-    'orderdate'=>$orderDate,
-    'name'=>$name,
-    'company'=>$company,
-    'address'=>$address,
-    'city'=>$city,
-    'postcode'=>$postcode,
-    'state'=>$state,
-    'country'=>$country,
-    'ship_instructions'=>$ship_instructions,
-    'phone'=>$phone,
-    'mobile'=>$mobile,
-    'email'=>$email,
-    'note'=>"BC Order #{$orderId}",
-    'thelineitems'=>$thelineitems
+    'promo_group_id'    => 9,
+    'orderdate'         => $orderDate,
+    'name'              => $name,
+    'company'           => $company,
+    'address'           => $address,
+    'city'              => $city,
+    'postcode'          => $postcode,
+    'state'             => $state,
+    'country'           => $country,
+    'ship_instructions' => $ship_instructions,
+    'phone'             => $phone,
+    'mobile'            => $mobile,
+    'email'             => $email,
+    'note'              => "BC Order #{$orderId}",
+    'thelineitems'      => $thelineitems
 ];
-
-// 9a) Append unmatched SKUs to note
+// Append unmatched SKUs to note
 if (!empty($unmatchedSkus)) {
     $append = "Unmatched SKUs: " . implode(', ', $unmatchedSkus);
     $params['note'] .= " | {$append}";
