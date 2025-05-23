@@ -52,18 +52,18 @@ error_log("🔍 Raw billing_address: " . print_r($order['billing_address'] ?? []
 
 if (!empty($order['shipping_addresses'])) {
     // If it's a single-quoted JSON string
-    // If it's a single-quoted JSON string
     if (is_string($order['shipping_addresses'])) {
         $rawShip = $order['shipping_addresses'];
         error_log("🔍 Raw shipping_addresses string: " . $rawShip);
         // 1) Convert only keys and values, preserving inner apostrophes
         $step1 = preg_replace("/'([^']+?)'\s*:/", '"$1":', $rawShip);
+        error_log("🔄 Step1 JSON string: " . $step1);
         $step2 = preg_replace_callback(
             "/:\s*'((?:[^'\\]|\\.)*)'/",
             function($m) { return ': "'. addslashes($m[1]) . '"'; },
             $step1
         );
-        error_log("🔍 JSON-ready shipping_addresses: " . $step2);
+        error_log("🔄 Step2 JSON string: " . $step2);
         $decoded = json_decode($step2, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
             error_log("⚠️ Failed to decode shipping_addresses: " . json_last_error_msg());
