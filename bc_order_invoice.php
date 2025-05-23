@@ -152,7 +152,7 @@ if (!empty($unmatchedSkus)) {
 error_log("📤 createOrder params: " . print_r($params, true));
 
 // 12) Call createOrder
-try {
+/* try {
     $inv = $client->createOrder($creds, $params);
     error_log("✅ Invoice created ID: " . ($inv['id'] ?? 'n/a'));
     echo json_encode(['status'=>'success','invoice_id'=>$inv['id'] ?? null]);
@@ -160,6 +160,6 @@ try {
     error_log("❌ createOrder error: " . $e->getMessage());
     http_response_code(500);
     echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
-}
+} */
 
 // EOF
