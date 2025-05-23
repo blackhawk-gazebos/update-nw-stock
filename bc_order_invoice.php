@@ -51,46 +51,46 @@ if (isset($data[0]) && is_array($data[0])) {
 error_log("🔍 Raw billing_address: " . print_r($order['billing_address'] ?? [], true));
 
 if (!empty($order['shipping_addresses'])) {
+        // If it's a single-quoted JSON string, eval it as PHP array
     if (is_string($order['shipping_addresses'])) {
         $rawShip = $order['shipping_addresses'];
         error_log("🔍 Raw shipping_addresses string: " . $rawShip);
-
-        // Extract exactly the fields we need via regex
-        $fields = [
-            'first_name','last_name','company',
-            'street_1','street_2','city','zip',
-            'country','email','phone','state'
-        ];
-        foreach ($fields as $f) {
-            if (preg_match("/'" . $f . "'\\s*:\\s*'([^']*)'/", $rawShip, $m)) {
-                $order["shipping_addresses_{$f}"] = $m[1];
+        $evalCode = 'return ' . $rawShip . ';';
+        try {
+            $parsed = eval($evalCode);
+            if (is_array($parsed)) {
+                $order['shipping_addresses'] = $parsed;
+                error_log("🔄 Parsed shipping_addresses via eval: " . print_r($parsed, true));
             } else {
-                $order["shipping_addresses_{$f}"] = '';
+                error_log("⚠️ eval did not return an array");
             }
+        } catch (ParseError $e) {
+            error_log("⚠️ eval parse error: " . $e->getMessage());
+        } catch (Throwable $e) {
+            error_log("⚠️ eval error: " . $e->getMessage());
         }
-        $parsed = array_intersect_key(
-            $order,
-            array_flip(array_map(fn($f) => "shipping_addresses_{$f}", $fields))
-        );
-        error_log("🔄 Parsed shipping_addresses fields: " . print_r($parsed, true));
+    }
+    // If it's already an array
+    if (is_array($order['shipping_addresses']) && isset($order['shipping_addresses'][0])) {
+        error_log("🔍 Raw shipping_addresses array: " . print_r($order['shipping_addresses'], true));
+        $order['shipping_addresses'] = $order['shipping_addresses'][0];
+        error_log("🔄 Converted shipping_addresses array to single object: " . print_r($order['shipping_addresses'], true));
+    }
+    // Flatten into top-level prefixed keys if it's an array
+    if (is_array($order['shipping_addresses'])) {
+        foreach ($order['shipping_addresses'] as $k => $v) {
+            $order["shipping_addresses_{$k}"] = $v;
+        }
+        error_log("📦 Flattened shipping_addresses into order array");
+    } else {
+        error_log("⚠️ shipping_addresses not an array, skipping flatten");
     }
 }
 
-// detect fallback to billing_address
-if (empty($order['shipping_addresses_first_name'])) {
+// detect fallback to billing
+if (!isset($order['shipping_addresses_first_name'])) {
     error_log("🚚 Falling back to billing_address for shipping info");
-    foreach ([
-        'first_name','last_name','company',
-        'street_1','street_2','city','zip',
-        'country','email','phone','state'
-    ] as $f) {
-        $order["shipping_addresses_{$f}"] =
-            $order['billing_address'][$f] ?? '';
-    }
 }
-
-// 5) Setup OMINS RPC client
-
 
 // 5) Setup OMINS RPC client
 require_once 'jsonRPCClient.php';
@@ -119,10 +119,10 @@ if (is_array($items)) {
             $meta = $client->getProductbyName($creds, ['name' => $sku]);
             if (!empty($meta['id'])) {
                 $thelineitems[] = [
-                    'ds-partnumber' => $sku,
-                    'qty'           => $qty,
-                    'price'         => $price
-                ];
+    'partnumber' => $sku,
+    'qty'         => $qty,
+    'unitcost'    => $price,
+];
             } else {
                 $unmatchedSkus[] = $sku;
             }
