@@ -40,8 +40,13 @@ if (isset($data[0]) && is_array($data[0])) {
 
 // Check if shipping_addresses is a string and decode it
 if (isset($order['shipping_addresses']) && is_string($order['shipping_addresses'])) {
-    // Replace single quotes with double quotes for valid JSON
+    // 1. Replace single quotes with double quotes for valid JSON
     $jsonShippingAddresses = str_replace("'", '"', $order['shipping_addresses']);
+
+    // 2. Fix the malformed URL: replace "https: //" with "https://"
+    // This addresses the "Syntax error" specifically from the payload you shared.
+    $jsonShippingAddresses = str_replace("https: //", "https://", $jsonShippingAddresses);
+
     $decodedShippingAddresses = json_decode($jsonShippingAddresses, true);
 
     // If decoding was successful, use the decoded array
@@ -49,6 +54,7 @@ if (isset($order['shipping_addresses']) && is_string($order['shipping_addresses'
         $order['shipping_addresses'] = $decodedShippingAddresses;
         error_log("🔄 Decoded shipping_addresses string to array successfully.");
     } else {
+        // This will now log more specific errors if any other syntax issues arise
         error_log("❌ Failed to decode shipping_addresses string: " . json_last_error_msg());
     }
 }
