@@ -51,28 +51,23 @@ if (isset($data[0]) && is_array($data[0])) {
 error_log("🔍 Raw billing_address: " . print_r($order['billing_address'] ?? [], true));
 
 if (!empty($order['shipping_addresses'])) {
-    // If it's a single-quoted JSON string
+        // If it's a single-quoted JSON string, eval it as PHP array
     if (is_string($order['shipping_addresses'])) {
         $rawShip = $order['shipping_addresses'];
         error_log("🔍 Raw shipping_addresses string: " . $rawShip);
-        // 1) Convert only keys and values, preserving inner apostrophes
-        $step1 = preg_replace("/'([^']+?)'\s*:/", '"$1":', $rawShip);
-        error_log("🔄 Step1 JSON string: " . $step1);
-        $step2 = preg_replace_callback(
-            "/:\s*'((?:[^'\\]|\\.)*)'/",
-            function($m) { return ': "'. addslashes($m[1]) . '"'; },
-            $step1
-        );
-        error_log("🔄 Step2 JSON string: " . $step2);
-        $decoded = json_decode($step2, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            error_log("⚠️ Failed to decode shipping_addresses: " . json_last_error_msg());
-        } else {
-            error_log("🔍 Decoded shipping_addresses array: " . print_r($decoded, true));
-            if (isset($decoded[0]) && is_array($decoded[0])) {
-                $order['shipping_addresses'] = $decoded;
-                error_log("🔄 Assigned decoded shipping_addresses array");
+        $evalCode = 'return ' . $rawShip . ';';
+        try {
+            $parsed = eval($evalCode);
+            if (is_array($parsed)) {
+                $order['shipping_addresses'] = $parsed;
+                error_log("🔄 Parsed shipping_addresses via eval: " . print_r($parsed, true));
+            } else {
+                error_log("⚠️ eval did not return an array");
             }
+        } catch (ParseError $e) {
+            error_log("⚠️ eval parse error: " . $e->getMessage());
+        } catch (Throwable $e) {
+            error_log("⚠️ eval error: " . $e->getMessage());
         }
     }
     // If it's already an array
