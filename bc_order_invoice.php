@@ -156,7 +156,7 @@ $params = [
     'note'             => "BC Order #{$orderId}",
 
     // supply invoice rows exactly as the form expects
-    $1\$rows,
+    'thelineitems'     => $rows,
     'lineitemschanged' => 1
 ];
 if (!empty($unmatched)) {
