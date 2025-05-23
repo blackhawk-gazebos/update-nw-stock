@@ -38,21 +38,25 @@ if (isset($data[0]) && is_array($data[0])) {
     $order = $data;
 }
 
-// 4) Normalize shipping_addresses: if array, take first element
+// 4) Normalize and debug shipping_addresses
+error_log("🔍 Raw billing_address: " . print_r($order['billing_address'] ?? null, true));
+
 if (!empty($order['shipping_addresses']) && is_array($order['shipping_addresses'])) {
+    error_log("🔍 Raw shipping_addresses array: " . print_r($order['shipping_addresses'], true));
     if (isset($order['shipping_addresses'][0]) && is_array($order['shipping_addresses'][0])) {
         $order['shipping_addresses'] = $order['shipping_addresses'][0];
-        error_log("🔄 Converted shipping_addresses array to single object");
+        error_log("🔄 Converted shipping_addresses array to single object: " . print_r($order['shipping_addresses'], true));
     }
 }
 
-// 5) Flatten shipping_addresses fields with prefix
+// 5) Flatten shipping_addresses fields with prefix and debug
 if (!empty($order['shipping_addresses']) && is_array($order['shipping_addresses'])) {
     foreach ($order['shipping_addresses'] as $key => $val) {
         $order["shipping_addresses_{$key}"] = $val;
     }
-    error_log("📦 Flattened shipping_addresses into order array");
+    error_log("📦 Flattened shipping_addresses into order array, keys: " . implode(',', array_keys($order['shipping_addresses'])));
 }
+
 // detect fallback to billing_address
 if (!isset($order['shipping_addresses_first_name'])) {
     error_log("🚚 Falling back to billing_address for shipping info");
@@ -64,7 +68,7 @@ require_once '00_creds.php'; // $sys_id, $username, $password, $api_url
 $client = new jsonRPCClient($api_url, false);
 $creds  = (object)['system_id'=>$sys_id,'username'=>$username,'password'=>$password];
 
-// 7) Parse BC line items (V3) or fallback V2 products string
+// 7) Parse BC line items
 $items = $order['line_items'] ?? null;
 if (empty($items) && !empty($order['products'])) {
     $jsonItems = str_replace("'", '"', $order['products']);
@@ -72,7 +76,7 @@ if (empty($items) && !empty($order['products'])) {
     error_log("🔄 Parsed V2 products: " . json_last_error_msg());
 }
 
-// 8) Build invoice detail rows with correct field names
+// 8) Build invoice detail rows
 $thelineitems = [];
 $unmatchedSkus = [];
 if (is_array($items)) {
@@ -117,6 +121,8 @@ $state   = $order['shipping_addresses_state'] ?? $order['billing_address']['stat
 $country = $order['shipping_addresses_country'] ?? $order['billing_address']['country'] ?? '';
 $phone   = $order['shipping_addresses_phone'] ?? $order['billing_address']['phone'] ?? '';
 $email   = $order['shipping_addresses_email'] ?? $order['billing_address']['email'] ?? '';
+
+error_log("📦 Final shipping vars - Name: {$name}, Address: {$address}, City: {$city}, Zip: {$post}, Email: {$email}");
 
 // 10) Format order date & get ID
 $orderDate = date('Y-m-d', strtotime($order['date_created'] ?? ''));
