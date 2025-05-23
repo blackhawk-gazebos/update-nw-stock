@@ -128,7 +128,8 @@ $name    = trim(
 );
 $company = $order['shipping_addresses_company']  ?? '';
 $street  = $order['shipping_addresses_street_1'] ?? '';
-$city    = $order['shipping_addresses_city']     ?? '';\$zip     = $order['shipping_addresses_zip']      ?? '';
+$city    = $order['shipping_addresses_city']     ?? '';
+$zip     = $order['shipping_addresses_zip']      ?? '';
 $state   = $order['shipping_addresses_state']    ?? '';
 $country = $order['shipping_addresses_country']  ?? '';
 $phone   = $order['shipping_addresses_phone']    ?? '';
