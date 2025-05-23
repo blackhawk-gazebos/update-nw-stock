@@ -38,6 +38,21 @@ if (isset($data[0]) && is_array($data[0])) {
     $order = $data;
 }
 
+// Check if shipping_addresses is a string and decode it
+if (isset($order['shipping_addresses']) && is_string($order['shipping_addresses'])) {
+    // Replace single quotes with double quotes for valid JSON
+    $jsonShippingAddresses = str_replace("'", '"', $order['shipping_addresses']);
+    $decodedShippingAddresses = json_decode($jsonShippingAddresses, true);
+
+    // If decoding was successful, use the decoded array
+    if (json_last_error() === JSON_ERROR_NONE && is_array($decodedShippingAddresses)) {
+        $order['shipping_addresses'] = $decodedShippingAddresses;
+        error_log("🔄 Decoded shipping_addresses string to array successfully.");
+    } else {
+        error_log("❌ Failed to decode shipping_addresses string: " . json_last_error_msg());
+    }
+}
+
 // 4) Normalize and debug shipping_addresses
 error_log("🔍 Raw billing_address: " . print_r($order['billing_address'] ?? null, true));
 
