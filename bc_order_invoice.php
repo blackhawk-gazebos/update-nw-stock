@@ -17,7 +17,6 @@ if (!$secret || !$token || !hash_equals($secret, $token)) {
 
 // 1) Read & log raw payload
 $raw = file_get_contents('php://input');
-
 error_log("🛎️ Webhook payload: {$raw}");
 
 // 2) Decode JSON into array
@@ -39,37 +38,32 @@ if (isset($data[0]) && is_array($data[0])) {
     $order = $data;
 }
 
-$jsonShippingAddresses = $order['shipping_addresses'];
-
-// 1. Replace the known malformed URL pattern first.
-$jsonShippingAddresses = str_replace("https: //", "https://", $jsonShippingAddresses);
-
-// 2. Temporarily replace any existing backslashes in the content.
-// This is important because backslashes are used for escaping in JSON.
-$jsonShippingAddresses = str_replace('\\', '__TEMP_BACKSLASH__', $jsonShippingAddresses);
-
-// 3. Temporarily replace any existing double quotes in the content.
-$jsonShippingAddresses = str_replace('"', '__TEMP_DOUBLE_QUOTE__', $jsonShippingAddresses);
-
-// 4. Replace ALL single quotes with double quotes. This will convert delimiters and problematic apostrophes.
-$jsonShippingAddresses = str_replace("'", '"', $jsonShippingAddresses);
-
-// 5. Restore original double quotes, making sure they are now JSON-escaped.
-$jsonShippingAddresses = str_replace('__TEMP_DOUBLE_QUOTE__', '\"', $jsonShippingAddresses);
-
-// 6. Restore original backslashes, making sure they are now JSON-escaped.
-$jsonShippingAddresses = str_replace('__TEMP_BACKSLASH__', '\\\\', $jsonShippingAddresses);
-
-// Now, the string should be valid JSON for json_decode.
-$decodedShippingAddresses = json_decode($jsonShippingAddresses, true);
-
-// 4) Normalize and debug shipping_addresses
+// 4) Normalize shipping_addresses and debug
+// Log raw billing_address
 error_log("🔍 Raw billing_address: " . print_r($order['billing_address'] ?? null, true));
 
-error_log("🔍 Decoded billing_address: " . print_r($decodedShippingAddresses['billing_address'] ?? null, true));
+// If shipping_addresses is a string (single-quoted JSON)
+if (!empty($order['shipping_addresses']) && is_string($order['shipping_addresses'])) {
+    $rawShip = $order['shipping_addresses'];
+    error_log("🔍 Raw shipping_addresses string: " . $rawShip);
+    // convert single quotes to double quotes
+    $json = str_replace("'", '"', $rawShip);
+    // decode JSON
+    $decoded = json_decode($json, true);
+    error_log("🔍 Decoded shipping_addresses array: " . print_r($decoded, true));
+    if (isset($decoded[0]) && is_array($decoded[0])) {
+        $order['shipping_addresses'] = $decoded;
+        error_log("🔄 Assigned decoded shipping_addresses array");
+    } else {
+        error_log("⚠️ Failed to decode shipping_addresses string: " . json_last_error_msg());
+    }
+}
 
+// If shipping_addresses is already an array
 if (!empty($order['shipping_addresses']) && is_array($order['shipping_addresses'])) {
+    // Log raw array
     error_log("🔍 Raw shipping_addresses array: " . print_r($order['shipping_addresses'], true));
+    // If numeric-index array, convert to associative first element
     if (isset($order['shipping_addresses'][0]) && is_array($order['shipping_addresses'][0])) {
         $order['shipping_addresses'] = $order['shipping_addresses'][0];
         error_log("🔄 Converted shipping_addresses array to single object: " . print_r($order['shipping_addresses'], true));
@@ -139,7 +133,6 @@ $name    = trim((
     $order['shipping_addresses_last_name'] ??
     $order['billing_address']['last_name'] ??
     ''));
-
 $company = $order['shipping_addresses_company'] ?? $order['billing_address']['company'] ?? '';
 $address = $order['shipping_addresses_street_1'] ?? $order['billing_address']['street_1'] ?? '';
 $city    = $order['shipping_addresses_city'] ?? $order['billing_address']['city'] ?? '';
@@ -148,7 +141,6 @@ $state   = $order['shipping_addresses_state'] ?? $order['billing_address']['stat
 $country = $order['shipping_addresses_country'] ?? $order['billing_address']['country'] ?? '';
 $phone   = $order['shipping_addresses_phone'] ?? $order['billing_address']['phone'] ?? '';
 $email   = $order['shipping_addresses_email'] ?? $order['billing_address']['email'] ?? '';
-
 error_log("📦 Final shipping vars - Name: {$name}, Address: {$address}, City: {$city}, Zip: {$post}, Email: {$email}");
 
 // 10) Format order date & get ID
@@ -179,7 +171,7 @@ if (!empty($unmatchedSkus)) {
 error_log("📤 createOrder params: " . print_r($params, true));
 
 // 12) Call createOrder
-/* try {
+try {
     $inv = $client->createOrder($creds, $params);
     error_log("✅ Invoice created ID: " . ($inv['id'] ?? 'n/a'));
     echo json_encode(['status'=>'success','invoice_id'=>$inv['id'] ?? null]);
@@ -187,6 +179,6 @@ error_log("📤 createOrder params: " . print_r($params, true));
     error_log("❌ createOrder error: " . $e->getMessage());
     http_response_code(500);
     echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
-} */
+}
 
 // EOF
