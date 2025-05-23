@@ -136,7 +136,8 @@ $addr=$order['shipping_addresses_street_1']??$order['billing_address']['street_1
 $city=$order['shipping_addresses_city']??$order['billing_address']['city']??'';
 $zip=$order['shipping_addresses_zip']??$order['billing_address']['zip']??'';
 $state=$order['shipping_addresses_state']??$order['billing_address']['state']??'';
-$country=$order['shipping_addresses_country']??$order['billing_address']['country']??'';\$phone=$order['shipping_addresses_phone']??\$order['billing_address']['phone']??'';
+$country=$order['shipping_addresses_country']??$order['billing_address']['country']??'';
+$phone=$order['shipping_addresses_phone']??$order['billing_address']['phone']??'';
 $email=$order['shipping_addresses_email']??$order['billing_address']['email']??'';
 error_log("📦 Shipping to: $name, $addr, $city $zip, $country, $email");
 
