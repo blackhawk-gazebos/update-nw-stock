@@ -17,6 +17,7 @@ if (!$secret || !$token || !hash_equals($secret, $token)) {
 
 // 1) Read & log raw payload
 $raw = file_get_contents('php://input');
+
 error_log("🛎️ Webhook payload: {$raw}");
 
 // 2) Decode JSON into array
@@ -38,29 +39,34 @@ if (isset($data[0]) && is_array($data[0])) {
     $order = $data;
 }
 
-// Check if shipping_addresses is a string and decode it
-if (isset($order['shipping_addresses']) && is_string($order['shipping_addresses'])) {
-    // 1. Replace single quotes with double quotes for valid JSON
-    $jsonShippingAddresses = str_replace("'", '"', $order['shipping_addresses']);
+$jsonShippingAddresses = $order['shipping_addresses'];
 
-    // 2. Fix the malformed URL: replace "https: //" with "https://"
-    // This addresses the "Syntax error" specifically from the payload you shared.
-    $jsonShippingAddresses = str_replace("https: //", "https://", $jsonShippingAddresses);
+// 1. Replace the known malformed URL pattern first.
+$jsonShippingAddresses = str_replace("https: //", "https://", $jsonShippingAddresses);
 
-    $decodedShippingAddresses = json_decode($jsonShippingAddresses, true);
+// 2. Temporarily replace any existing backslashes in the content.
+// This is important because backslashes are used for escaping in JSON.
+$jsonShippingAddresses = str_replace('\\', '__TEMP_BACKSLASH__', $jsonShippingAddresses);
 
-    // If decoding was successful, use the decoded array
-    if (json_last_error() === JSON_ERROR_NONE && is_array($decodedShippingAddresses)) {
-        $order['shipping_addresses'] = $decodedShippingAddresses;
-        error_log("🔄 Decoded shipping_addresses string to array successfully.");
-    } else {
-        // This will now log more specific errors if any other syntax issues arise
-        error_log("❌ Failed to decode shipping_addresses string: " . json_last_error_msg());
-    }
-}
+// 3. Temporarily replace any existing double quotes in the content.
+$jsonShippingAddresses = str_replace('"', '__TEMP_DOUBLE_QUOTE__', $jsonShippingAddresses);
+
+// 4. Replace ALL single quotes with double quotes. This will convert delimiters and problematic apostrophes.
+$jsonShippingAddresses = str_replace("'", '"', $jsonShippingAddresses);
+
+// 5. Restore original double quotes, making sure they are now JSON-escaped.
+$jsonShippingAddresses = str_replace('__TEMP_DOUBLE_QUOTE__', '\"', $jsonShippingAddresses);
+
+// 6. Restore original backslashes, making sure they are now JSON-escaped.
+$jsonShippingAddresses = str_replace('__TEMP_BACKSLASH__', '\\\\', $jsonShippingAddresses);
+
+// Now, the string should be valid JSON for json_decode.
+$decodedShippingAddresses = json_decode($jsonShippingAddresses, true);
 
 // 4) Normalize and debug shipping_addresses
 error_log("🔍 Raw billing_address: " . print_r($order['billing_address'] ?? null, true));
+
+error_log("🔍 Decoded billing_address: " . print_r($decodedShippingAddresses['billing_address'] ?? null, true));
 
 if (!empty($order['shipping_addresses']) && is_array($order['shipping_addresses'])) {
     error_log("🔍 Raw shipping_addresses array: " . print_r($order['shipping_addresses'], true));
