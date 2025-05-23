@@ -19,7 +19,7 @@ if (!$secret || !$token || !hash_equals($secret, $token)) {
 $raw = file_get_contents('php://input');
 error_log("🛎️ Webhook payload: {$raw}");
 
-// 2) Decode JSON
+// 2) Decode JSON into array
 $data = json_decode($raw, true);
 if (json_last_error() !== JSON_ERROR_NONE) {
     http_response_code(400);
@@ -38,26 +38,33 @@ if (isset($data[0]) && is_array($data[0])) {
     $order = $data;
 }
 
-// 4) Flatten shipping_addresses into top‐level keys
-if (!empty($order['shipping_addresses']) && is_array($order['shipping_addresses'][0])) {
-    foreach ($order['shipping_addresses'][0] as $key => $val) {
+// 4) Normalize shipping_addresses: if array, take first element
+if (!empty($order['shipping_addresses']) && is_array($order['shipping_addresses'])) {
+    if (isset($order['shipping_addresses'][0]) && is_array($order['shipping_addresses'][0])) {
+        $order['shipping_addresses'] = $order['shipping_addresses'][0];
+        error_log("🔄 Converted shipping_addresses array to single object");
+    }
+}
+
+// 5) Flatten shipping_addresses fields with prefix
+if (!empty($order['shipping_addresses']) && is_array($order['shipping_addresses'])) {
+    foreach ($order['shipping_addresses'] as $key => $val) {
         $order["shipping_addresses_{$key}"] = $val;
     }
     error_log("📦 Flattened shipping_addresses into order array");
 }
-
-// detect fallback to billing
+// detect fallback to billing_address
 if (!isset($order['shipping_addresses_first_name'])) {
     error_log("🚚 Falling back to billing_address for shipping info");
 }
 
-// 5) Setup OMINS RPC client
+// 6) Setup OMINS RPC client
 require_once 'jsonRPCClient.php';
 require_once '00_creds.php'; // $sys_id, $username, $password, $api_url
 $client = new jsonRPCClient($api_url, false);
 $creds  = (object)['system_id'=>$sys_id,'username'=>$username,'password'=>$password];
 
-// 6) Parse BC line items (V3) or fallback V2 products string
+// 7) Parse BC line items (V3) or fallback V2 products string
 $items = $order['line_items'] ?? null;
 if (empty($items) && !empty($order['products'])) {
     $jsonItems = str_replace("'", '"', $order['products']);
@@ -65,7 +72,7 @@ if (empty($items) && !empty($order['products'])) {
     error_log("🔄 Parsed V2 products: " . json_last_error_msg());
 }
 
-// 7) Build invoice detail rows with correct field names
+// 8) Build invoice detail rows with correct field names
 $thelineitems = [];
 $unmatchedSkus = [];
 if (is_array($items)) {
@@ -77,7 +84,6 @@ if (is_array($items)) {
         try {
             $meta = $client->getProductbyName($creds, ['name'=>$sku]);
             if (!empty($meta['id'])) {
-                // use OMINS field names: ds-partnumber, qty, price
                 $thelineitems[] = [
                     'ds-partnumber' => $sku,
                     'qty'           => $qty,
@@ -94,14 +100,14 @@ if (is_array($items)) {
 error_log("📥 Matched lines: " . count($thelineitems));
 error_log("📥 Unmatched SKUs: " . implode(', ', $unmatchedSkus));
 
-// 8) Map shipping vars identical to billing_address structure
+// 9) Map shipping vars identical to billing_address structure
 $name    = trim((
     $order['shipping_addresses_first_name'] ??
     $order['billing_address']['first_name'] ??
     '') . ' ' . (
     $order['shipping_addresses_last_name'] ??
     $order['billing_address']['last_name'] ??
-    '')); 
+    ''));
 
 $company = $order['shipping_addresses_company'] ?? $order['billing_address']['company'] ?? '';
 $address = $order['shipping_addresses_street_1'] ?? $order['billing_address']['street_1'] ?? '';
@@ -112,11 +118,11 @@ $country = $order['shipping_addresses_country'] ?? $order['billing_address']['co
 $phone   = $order['shipping_addresses_phone'] ?? $order['billing_address']['phone'] ?? '';
 $email   = $order['shipping_addresses_email'] ?? $order['billing_address']['email'] ?? '';
 
-// 9) Format order date & get ID
+// 10) Format order date & get ID
 $orderDate = date('Y-m-d', strtotime($order['date_created'] ?? ''));
 $orderId   = $order['id'] ?? '';
 
-// 10) Build createOrder params
+// 11) Build createOrder params
 $params = [
     'promo_group_id'   => 9,
     'orderdate'        => $orderDate,
@@ -139,7 +145,7 @@ if (!empty($unmatchedSkus)) {
 }
 error_log("📤 createOrder params: " . print_r($params, true));
 
-// 11) Call createOrder
+// 12) Call createOrder
 try {
     $inv = $client->createOrder($creds, $params);
     error_log("✅ Invoice created ID: " . ($inv['id'] ?? 'n/a'));
