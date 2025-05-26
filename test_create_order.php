@@ -1,6 +1,6 @@
 <?php
 // test_create_order.php
-// One-off script to test OMINS createOrder+getOrder with a single line item
+// One-off script to test OMINS createOrder with a single line item (line-items debug only)
 
 require_once 'jsonRPCClient.php';
 require_once '00_creds.php';
@@ -28,14 +28,10 @@ $params = [
     'mobile'           => '021 000 000',
     'email'            => 'test@acme.co.nz',
     'type'             => 'invoice',
+    'creation_type'    => 'manual',  // mirror form-based creation
     'note'             => 'Test via RPC',
-    'ds-partnumber_1'  => 'INDIAN+-+JUTE+1.8m',
-    'partnumber_1'       => '607',
-    'shipping'         => '10.00',
-    'discountamount'   => '1.10',
-  'totalItems'       => '88',
-  
-    // Single line item array
+
+    // Single line item
     'thelineitems'     => [
         [
             'partnumber' => '2174',
@@ -46,35 +42,15 @@ $params = [
     'lineitemschanged' => 1,
 ];
 
+// Dump params for inspection
+echo "=== RPC createOrder parameters ===\n";
+print_r($params);
+
+echo "=== Sending RPC call... ===\n";
 try {
-    // Create invoice
-    $inv = $client->createOrder($creds, $params);
-
-    // Normalize createOrder result
-    if (is_array($inv) && isset($inv['id'])) {
-        $invoice_id = $inv['id'];
-    } elseif (is_int($inv) || is_string($inv)) {
-        $invoice_id = $inv;
-    } else {
-        echo "ERROR: Unexpected createOrder response: ";
-        print_r($inv);
-        exit;
-    }
-
-    echo "Created invoice ID: {$invoice_id}\n";
-
-    // Fetch back to verify line items
-    $details = $client->getOrder($creds, ['id' => $invoice_id]);
-    echo "Fetched invoice details:\n";
-    print_r($details);
-
-    if (!empty($details['lineitems']) && is_array($details['lineitems'])) {
-        echo "Line items on invoice:\n";
-        print_r($details['lineitems']);
-    } else {
-        echo "No line items returned or key missing.\n";
-    }
-
+    $response = $client->createOrder($creds, $params);
+    echo "=== RPC Response ===\n";
+    print_r($response);
 } catch (Exception $e) {
-    echo "ERROR: " . $e->getMessage() . "\n";
+    echo "ERROR during createOrder: " . $e->getMessage() . "\n";
 }
