@@ -32,15 +32,15 @@ try {
         'type'             => 'invoice',
         'creation_type'    => 'manual',  // mirror form-based creation
         'note'             => 'Test via RPC',
-    'thelineitems'     => json_encode([
-        [
-            'partnumber' => '2174',
-            'ds-partnumber' => 'INDIAN+-+JUTE+1.8m',
-            'ds-partnumber' => 'Jute Natural 2 x 2.8m',
-            'qty'        => 1,
-            'price'      => 7.77,
+
+        // Provide line items as a PHP array (JSON-RPC will handle serialization)
+        'thelineitems'     => [
+            [
+                'partnumber' => '2174',  // valid SKU in OMINS
+                'qty'        => 1,
+                'price'      => 7.77,
+            ],
         ],
-    ]),
         'lineitemschanged' => 1,
     ];
 
@@ -56,6 +56,8 @@ try {
 
     echo "=== RPC Response ===\n";
     print_r($response);
+
+    echo "\nInvoice created. Check OMINS UI or fetch via getOrder for line items.\n";
 
 } catch (Exception $e) {
     // Catch any exception and dump its details
