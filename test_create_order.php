@@ -1,6 +1,6 @@
 <?php
 // test_create_order.php
-// One-off script to test OMINS createOrder with a single line item using JSON-RPC
+// One-off script to test OMINS createOrder+getOrder with a single line item using JSON-RPC
 
 require_once 'jsonRPCClient.php';
 require_once '00_creds.php';
@@ -32,8 +32,6 @@ try {
         'type'             => 'invoice',
         'creation_type'    => 'manual',  // mirror form-based creation
         'note'             => 'Test via RPC',
-
-        // Provide line items as a PHP array (JSON-RPC will handle serialization)
         'thelineitems'     => [
             [
                 'partnumber' => '2174',  // valid SKU in OMINS
@@ -44,20 +42,33 @@ try {
         'lineitemschanged' => 1,
     ];
 
-    // Dump params for inspection
-    echo "=== PHP Params ===\n";
-    print_r($params);
+    // Create the invoice
+    echo "Creating invoice...\n";
+    $createResponse = $client->createOrder($creds, $params);
 
-    echo "=== JSON Payload ===\n";
-    echo json_encode($params, JSON_PRETTY_PRINT) . "\n";
+    // Normalize invoice ID
+    if (is_array($createResponse) && isset($createResponse['id'])) {
+        $invoiceId = $createResponse['id'];
+    } elseif (is_int($createResponse) || is_string($createResponse)) {
+        $invoiceId = $createResponse;
+    } else {
+        throw new Exception('Unexpected createOrder response: ' . print_r($createResponse, true));
+    }
+    echo "Invoice created with ID: {$invoiceId}\n";
 
-    echo "=== Sending RPC call... ===\n";
-    $response = $client->createOrder($creds, $params);
+    // Now fetch the invoice details to inspect lineitems and other fields
+    echo "Fetching invoice details...\n";
+    $details = $client->getOrder($creds, $invoiceId);
+    echo "Invoice details:\n";
+    print_r($details);
 
-    echo "=== RPC Response ===\n";
-    print_r($response);
-
-    echo "\nInvoice created. Check OMINS UI or fetch via getOrder for line items.\n";
+    // Specifically dump lineitems key if present
+    if (isset($details['lineitems'])) {
+        echo "Line items returned:\n";
+        print_r($details['lineitems']);
+    } else {
+        echo "No 'lineitems' key found in fetched details.\n";
+    }
 
 } catch (Exception $e) {
     // Catch any exception and dump its details
