@@ -29,7 +29,12 @@ $params = [
     'email'            => 'test@acme.co.nz',
     'type'             => 'invoice',
     'note'             => 'Test via RPC',
-
+    'ds-partnumber_1'  => 'INDIAN+-+JUTE+1.8m',
+    'partnumber_1'       => '607',
+    'shipping'         => '10.00',
+    'discountamount'   => '1.10',
+  'totalItems'       => '88',
+  
     // Single line item array
     'thelineitems'     => [
         [
