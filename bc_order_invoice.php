@@ -64,7 +64,6 @@ if (!empty($order['shipping_addresses']) && is_string($order['shipping_addresses
         array_flip(array_map(fn($f) => "shipping_addresses_{$f}", $fields))
     ), true));
 }
-// Fallback to billing if shipping not present
 if (empty($order['shipping_addresses_first_name'])) {
     error_log("🚚 Falling back to billing_address for shipping info");
     foreach (['first_name','last_name','company','street_1','street_2','city','zip','country','email','phone','state'] as $f) {
@@ -123,33 +122,34 @@ $email   = $order['shipping_addresses_email'] ?? '';
 error_log("📦 Shipping to: $name, $street, $city $zip, $country, $email");
 
 // 9) Build createOrder params
-$orderDate = date('Y-m-d', strtotime($order['date_created'] ?? ''));
-$orderId   = $order['id'] ?? '';
+$orderDate   = date('Y-m-d', strtotime($order['date_created'] ?? ''));
+$currentDate = date('Y-m-d'); // use today for statusdate
+$orderId     = $order['id'] ?? '';
 $params = [
-    'promo_group_id'=>9,
-    'orderdate'=>$orderDate,
-    'statusdate'=>$orderDate,
-    'name'=>$name,
-    'company'=>$company,
-    'address'=>$street,
-    'city'=>$city,
-    'postcode'=>$zip,
-    'state'=>$state,
-    'country'=>$country,
-    'ship_instructions'=>'',
-    'phone'=>$phone,
-    'mobile'=>$phone,
-    'email'=>$email,
-    'note'=>"BC Order #{$orderId}",
+    'promo_group_id'   => 9,
+    'orderdate'        => $orderDate,
+    'statusdate'       => $currentDate,
+    'name'             => $name,
+    'company'          => $company,
+    'address'          => $street,
+    'city'             => $city,
+    'postcode'         => $zip,
+    'state'            => $state,
+    'country'          => $country,
+    'ship_instructions'=> '',
+    'phone'            => $phone,
+    'mobile'           => $phone,
+    'email'            => $email,
+    'note'             => "BC Order #{$orderId}",
 
-    // supply invoice rows exactly as the form expects
-    'thelineitems'     => json_encode($rows),
-    'lineitemschanged' => '1'
+    // supply invoice rows exactly as the form expects: pass a native PHP array
+    'thelineitems'     => $rows,
+    'lineitemschanged' => 1,
 ];
 if (!empty($unmatched)) {
     $params['note'] .= ' | Unmatched: ' . implode(', ', $unmatched);
 }
-error_log("🔍 RAW thelineitems string: " . $params['thelineitems']);
+error_log("🔍 RAW rows array: " . print_r($rows, true));
 error_log("📤 createOrder params: " . print_r($params, true));
 
 // 10) Call createOrder
