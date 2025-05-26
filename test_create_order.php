@@ -1,56 +1,65 @@
 <?php
 // test_create_order.php
-// One-off script to test OMINS createOrder with a single line item (line-items debug only)
+// One-off script to test OMINS createOrder with a single line item using JSON-RPC
 
 require_once 'jsonRPCClient.php';
 require_once '00_creds.php';
 
-$client = new jsonRPCClient($api_url, false);
-$creds  = (object)[
-    'system_id' => $sys_id,
-    'username'  => $username,
-    'password'  => $password,
-];
+try {
+    // Initialize client and credentials
+    $client = new jsonRPCClient($api_url, false);
+    $creds  = (object)[
+        'system_id' => $sys_id,
+        'username'  => $username,
+        'password'  => $password,
+    ];
 
-// Build test parameters for a single line item
-$params = [
-    'promo_group_id'   => 1,
-    'orderdate'        => '2025-05-26',
-    'statusdate'       => '2025-05-26',
-    'name'             => 'Test Customer',
-    'company'          => 'Acme Co',
-    'address'          => '123 Fake St',
-    'city'             => 'Wellington',
-    'postcode'         => '6011',
-    'state'            => 'Wellington',
-    'country'          => 'New Zealand',
-    'phone'            => '021 000 000',
-    'mobile'           => '021 000 000',
-    'email'            => 'test@acme.co.nz',
-    'type'             => 'invoice',
-    'creation_type'    => 'manual',  // mirror form-based creation
-    'note'             => 'Test via RPC',
-
-    // Single line item
-    'thelineitems'     => [
+    // Build test parameters for a single line item
+    $params = [
+        'promo_group_id'   => 1,
+        'orderdate'        => '2025-05-26',
+        'statusdate'       => '2025-05-26',
+        'name'             => 'Test Customer',
+        'company'          => 'Acme Co',
+        'address'          => '123 Fake St',
+        'city'             => 'Wellington',
+        'postcode'         => '6011',
+        'state'            => 'Wellington',
+        'country'          => 'New Zealand',
+        'phone'            => '021 000 000',
+        'mobile'           => '021 000 000',
+        'email'            => 'test@acme.co.nz',
+        'type'             => 'invoice',
+        'creation_type'    => 'manual',  // mirror form-based creation
+        'note'             => 'Test via RPC',
+    'thelineitems'     => json_encode([
         [
             'partnumber' => '2174',
+            'ds-partnumber' => 'INDIAN+-+JUTE+1.8m',
+            'ds-partnumber' => 'Jute Natural 2 x 2.8m',
             'qty'        => 1,
             'price'      => 7.77,
         ],
-    ],
-    'lineitemschanged' => 1,
-];
+    ]),
+        'lineitemschanged' => 1,
+    ];
 
-// Dump params for inspection
-echo "=== RPC createOrder parameters ===\n";
-print_r($params);
+    // Dump params for inspection
+    echo "=== PHP Params ===\n";
+    print_r($params);
 
-echo "=== Sending RPC call... ===\n";
-try {
+    echo "=== JSON Payload ===\n";
+    echo json_encode($params, JSON_PRETTY_PRINT) . "\n";
+
+    echo "=== Sending RPC call... ===\n";
     $response = $client->createOrder($creds, $params);
+
     echo "=== RPC Response ===\n";
     print_r($response);
+
 } catch (Exception $e) {
-    echo "ERROR during createOrder: " . $e->getMessage() . "\n";
+    // Catch any exception and dump its details
+    echo "ERROR: " . $e->getMessage() . "\n";
+    echo "In file " . $e->getFile() . " on line " . $e->getLine() . "\n";
+    echo "Stack trace:\n" . $e->getTraceAsString() . "\n";
 }
