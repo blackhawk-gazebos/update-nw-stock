@@ -1,6 +1,6 @@
 <?php
-// bc_order_invoice_noitems.php
-// Secured endpoint: Receives BC order via Zapier or direct input, parses customer data only, creates an invoice in OMINS without line items
+// bc_order_invoice.php
+// Secured endpoint: Receives BC order via Zapier or direct input, parses line items, and creates an invoice in OMINS via JSON-RPC
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
@@ -49,8 +49,8 @@ if (isset($data[0]) && is_array($data[0])) {
 // 4) Normalize & parse shipping address
 error_log("🔍 Raw billing_address: " . print_r($order['billing_address'] ?? [], true));
 if (!empty($order['shipping_addresses']) && is_string($order['shipping_addresses'])) {
-    // parse string into individual shipping fields
     $rawShip = $order['shipping_addresses'];
+    error_log("🔍 Raw shipping_addresses string: {$rawShip}");
     $fields = ['first_name','last_name','company','street_1','street_2','city','zip','country','email','phone','state'];
     foreach ($fields as $f) {
         if (preg_match("/'{$f}'\s*:\s*'([^']*)'/", $rawShip, $m)) {
@@ -59,9 +59,13 @@ if (!empty($order['shipping_addresses']) && is_string($order['shipping_addresses
             $order["shipping_addresses_{$f}"] = '';
         }
     }
+    error_log("🔄 Parsed shipping_addresses fields: " . print_r(array_intersect_key(
+        $order,
+        array_flip(array_map(fn($f) => "shipping_addresses_{$f}", $fields))
+    ), true));
 }
 if (empty($order['shipping_addresses_first_name'])) {
-    // fallback to billing address
+    error_log("🚚 Falling back to billing_address for shipping info");
     foreach (['first_name','last_name','company','street_1','street_2','city','zip','country','email','phone','state'] as $f) {
         $order["shipping_addresses_{$f}"] = $order['billing_address'][$f] ?? '';
     }
@@ -73,12 +77,39 @@ require_once '00_creds.php'; // defines $sys_id, $username, $password, $api_url
 $client = new jsonRPCClient($api_url, false);
 $creds  = (object)[ 'system_id'=>$sys_id,'username'=>$username,'password'=>$password ];
 
-// 6) Skip line item parsing for now
+// 6) Parse BigCommerce line items
+$items = $order['line_items'] ?? null;
+if (empty($items) && !empty($order['products'])) {
+    $jsonItems = str_replace("'", '"', $order['products']);
+    $items = json_decode($jsonItems, true);
+    error_log("🔄 Parsed V2 products: " . json_last_error_msg());
+}
+
+// 7) Build invoice rows array
 $rows = [];
 $unmatched = [];
-error_log("⚠️ Skipping product/line item parsing. Invoice will have no items.");
+if (is_array($items)) {
+    foreach ($items as $it) {
+        $sku = trim($it['sku'] ?? '');
+        $qty = (int)($it['quantity'] ?? 0);
+        $uc  = (float)($it['price_inc_tax'] ?? ($it['price_ex_tax'] ?? 0));
+        if (!$sku || $qty < 1) continue;
+        try {
+            $meta = $client->getProductbyName($creds, ['name'=>$sku]);
+            if (!empty($meta['id'])) {
+                $rows[] = [ 'partnumber'=>$sku, 'qty'=>$qty, 'price'=>$uc ];
+            } else {
+                $unmatched[] = $sku;
+            }
+        } catch (Exception $e) {
+            $unmatched[] = $sku;
+        }
+    }
+}
+error_log("📥 Matched rows: " . count($rows));
+error_log("📥 Unmatched SKUs: " . implode(', ', $unmatched));
 
-// 7) Map shipping vars
+// 8) Map shipping vars
 $name    = trim(($order['shipping_addresses_first_name'] ?? '') . ' ' . ($order['shipping_addresses_last_name'] ?? ''));
 $company = $order['shipping_addresses_company'] ?? '';
 $street  = $order['shipping_addresses_street_1'] ?? '';
@@ -90,36 +121,40 @@ $phone   = $order['shipping_addresses_phone'] ?? '';
 $email   = $order['shipping_addresses_email'] ?? '';
 error_log("📦 Shipping to: $name, $street, $city $zip, $country, $email");
 
-// 8) Build createOrder params without line items
+// 9) Build createOrder params
 $orderDate   = date('Y-m-d', strtotime($order['date_created'] ?? ''));
-$currentDate = date('Y-m-d');
+$currentDate = date('Y-m-d'); // use today for statusdate
 $orderId     = $order['id'] ?? '';
 $params = [
-    'promo_group_id'     => 9,
-    'orderdate'          => $orderDate,
-    'statusdate'         => $currentDate,
-    'name'               => $name,
-    'company'            => $company,
-    'address'            => $street,
-    'city'               => $city,
-    'postcode'           => $zip,
-    'state'              => $state,
-    'country'            => $country,
-    'phone'              => $phone,
-    'mobile'             => $phone,
-    'email'              => $email,
-    'type'               => 'invoice',
+    'promo_group_id'   => 9,
+    'orderdate'        => $orderDate,
+    'statusdate'       => $currentDate,
+    'name'             => $name,
+    'company'          => $company,
+    'address'          => $street,
+    'city'             => $city,
+    'postcode'         => $zip,
+    'state'            => $state,
+    'country'          => $country,
     'ship_instructions'=> '',
-    'printedinstructions' => '',
-    'specialinstructions' => '',
-    'note'               => "BC Order #{$orderId} (no line items)",
+    'printedinstructions' => 'printed instructions',
+    'specialinstructions' => 'special instructions',
+    'phone'            => $phone,
+    'mobile'           => $phone,
+    'email'            => $email,
+    'note'             => "BC Order #{$orderId}",
 
-    // Provide empty items array to prevent errors
-    'thelineitems'       => $rows,
-    'lineitemschanged'   => 0,
+    // supply invoice rows exactly as the form expects: pass a native PHP array
+    'thelineitems'     => $rows,
+    'lineitemschanged' => 1,
 ];
+if (!empty($unmatched)) {
+    $params['note'] .= ' | Unmatched: ' . implode(', ', $unmatched);
+}
+error_log("🔍 RAW rows array: " . print_r($rows, true));
+error_log("📤 createOrder params: " . print_r($params, true));
 
-// 9) Call createOrder
+// 10) Call createOrder
 try {
     $inv = $client->createOrder($creds, $params);
     error_log("✅ Invoice created ID: " . ($inv['id'] ?? 'n/a'));
