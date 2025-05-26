@@ -107,6 +107,10 @@ if (is_array($items)) {
             if (!empty($meta['id'])) {
                 $rows[] = [
                     'partnumber' => $sku,
+                    'codeqty'    => $sku,
+                    'productid'  => $sku,
+                    'ds-partnumber' => $sku,
+                    'ds-partnumber_1' => $sku,
                     'qty'        => $qty,
                     'price'      => $uc
                 ];
@@ -142,6 +146,7 @@ $orderId   = $order['id'] ?? '';
 $params = [
     'promo_group_id'   => 9,
     'orderdate'        => $orderDate,
+    'statusdate'       => $orderDate,
     'name'             => $name,
     'company'          => $company,
     'address'          => $street,
