@@ -87,22 +87,74 @@ if (empty($items) && !empty($order['products'])) {
 
 // 7) Build invoice rows array
 $rows = [];
-$unmatched = [];
-if (is_array($items)) {
-    foreach ($items as $it) {
-        $sku = trim($it['sku'] ?? '');
-        $qty = (int)($it['quantity'] ?? 0);
-        $uc  = (float)($it['price_inc_tax'] ?? ($it['price_ex_tax'] ?? 0));
-        if (!$sku || $qty < 1) continue;
-        try {
-            $meta = $client->getProductbyName($creds, ['name'=>$sku]);
-            if (!empty($meta['id'])) {
-                $rows[] = ['partnumber'=>$sku, 'qty'=>$qty, 'price'=>$uc];
-            } else {
+
+// — Override $rows via GET parameter for quick testing without redeploy —
+if (!empty($_GET['test_rows'])) {
+    $decoded = json_decode($_GET['test_rows'], true);
+    if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+        $rows = $decoded;
+        error_log("🧪 Overridden rows via test_rows param: " . print_r($rows, true));
+    } else {
+        error_log("❌ Invalid JSON in test_rows param: " . json_last_error_msg());
+    }
+}
+
+// — Hard-coded examples —
+// Uncomment to override manually (requires restart):
+// Example 1: single line
+// $rows = [ ['partnumber'=>'Jute Matt 60cm x 90cm Natural', 'qty'=>1, 'price'=>48.75] ];
+// Example 2: multiple lines
+// $rows = [
+//     ['partnumber'=>'Jute Matt 60cm x 90cm Natural', 'qty'=>1, 'price'=>48.75],
+//     ['partnumber'=>'Jute Natural 90 x 150cm',       'qty'=>2, 'price'=>199.00]
+// ];
+// Example 3: test SKU that definitely matches in OMINS
+// $rows = [ ['partnumber'=>'3m Frame Pro Steel 24new', 'qty'=>3, 'price'=>169.50] ];
+
+// Only run lookup loop when no override via test_rows and still empty
+if (empty($rows)) {
+    // only run lookup loop when no manual override
+    if (is_array($items)) {
+        foreach ($items as $it) {
+            $sku = trim($it['sku'] ?? '');
+            $qty = (int)($it['quantity'] ?? 0);
+            $uc  = (float)($it['price_inc_tax'] ?? ($it['price_ex_tax'] ?? 0));
+            if (!$sku || $qty < 1) continue;
+            try {
+                $meta = $client->getProductbyName($creds, ['name'=>$sku]);
+                if (!empty($meta['id'])) {
+                    $rows[] = ['partnumber'=>$sku, 'qty'=>$qty, 'price'=>$uc];
+                } else {
+                    $unmatched[] = $sku;
+                }
+            } catch (Exception $e) {
                 $unmatched[] = $sku;
             }
-        } catch (Exception $e) {
-            $unmatched[] = $sku;
+        }
+    }
+}
+error_log("📥 Matched rows: " . count($rows));
+error_log("📥 Unmatched SKUs: " . implode(', ', $unmatched));
+
+$unmatched = [];
+if (empty($rows)) {
+    // only run lookup loop when no manual override
+    if (is_array($items)) {
+        foreach ($items as $it) {
+            $sku = trim($it['sku'] ?? '');
+            $qty = (int)($it['quantity'] ?? 0);
+            $uc  = (float)($it['price_inc_tax'] ?? ($it['price_ex_tax'] ?? 0));
+            if (!$sku || $qty < 1) continue;
+            try {
+                $meta = $client->getProductbyName($creds, ['name'=>$sku]);
+                if (!empty($meta['id'])) {
+                    $rows[] = ['partnumber'=>$sku, 'qty'=>$qty, 'price'=>$uc];
+                } else {
+                    $unmatched[] = $sku;
+                }
+            } catch (Exception $e) {
+                $unmatched[] = $sku;
+            }
         }
     }
 }
@@ -144,8 +196,8 @@ $params = [
     'mobile'          => $phone,
     'email'           => $email,
     'note'            => "BC Order #{$orderId}",
-    'printedinstructions' => 'printed instructions',
-    'specialinstructions' => 'special instructions',
+    'printedinstructions' => '',
+    'specialinstructions' => '',
     // line items: supply as PHP array of associative arrays
     'thelineitems'    => $rows,
     'lineitemschanged'=> 1,
