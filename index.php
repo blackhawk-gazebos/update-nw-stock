@@ -4,4 +4,5 @@
   </head>
   <body>
     <?php echo '<p>Hello World</p>'; ?> 
+    <?php include 'test_create_order.php'; ?>
 </html>
