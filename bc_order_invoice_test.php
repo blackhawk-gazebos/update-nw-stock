@@ -23,7 +23,11 @@ if (getenv('TEST_RAW_PAYLOAD')) {
 } else {
     $raw = file_get_contents('php://input');
 }
+// Log the exact webhook payload received for debugging
+error_log("🛎️ Received raw webhook payload: " . $raw);
 
+
+/*
 // 2) Decode JSON
 $data = json_decode($raw, true);
 if (json_last_error() !== JSON_ERROR_NONE) {
@@ -125,3 +129,4 @@ try {
 }
 
 // EOF
+*/
