@@ -52,7 +52,7 @@ $rows = [];
 foreach ($items as $it) {
     $sku = trim($it['sku'] ?? '');
     $qty = (int)($it['quantity'] ?? 0);
-    $price = (float)(\$it['price_inc_tax'] ?? \$it['price_ex_tax'] ?? 0);
+    $price = (float)($it['price_inc_tax'] ?? $it['price_ex_tax'] ?? 0);
     if ($sku && $qty>0) {
         try {
             $meta = $client->getProductbyName($creds,['name'=>$sku]);
