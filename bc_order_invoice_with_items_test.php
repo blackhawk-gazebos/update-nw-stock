@@ -87,6 +87,30 @@ try {
     die(json_encode(['status'=>'error','message'=>"createOrder failed: ".$e->getMessage()]));
 }
 
+/////////
+try {
+    $res   = $client->createOrder($creds, $header);
+    // DEBUG: dump the entire response
+    error_log("🎯 createOrder raw response: " . print_r($res, true));
+
+    // now extract the ID
+    if (isset($res['id']) && $res['id']) {
+        $invId = $res['id'];
+    } else {
+        throw new Exception("No invoice ID in response");
+    }
+
+} catch (Exception $e) {
+    http_response_code(500);
+    // include the raw response if we have it
+    $raw = isset($res) ? print_r($res, true) : '<<none>>';
+    echo json_encode([
+      'status'  => 'error',
+      'message' => "createOrder failed: {$e->getMessage()}",
+      'rpc_raw' => $raw
+    ]);
+    exit;
+}
 // 2) Build the update payload with line items
 $update = ['recordid' => $invId, 'lineitemschanged' => 1];
 $idx = 1;
