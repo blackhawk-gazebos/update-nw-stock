@@ -5,55 +5,47 @@ error_reporting(E_ALL);
 ini_set('display_errors','1');
 
 // —— LOCAL TEST PAYLOAD ——
-// Paste your full payload here for one-off testing:
-// $test_raw_payload = '{
-//   "products":[ { … } ],
-//   "shipping":[ { … } ]
-// }';
+// $test_raw_payload = '{ "order_id":43455, "date_created":"2025-05-20T00:00:00Z",
+//   "products": [ /* … */ ], "shipping":[ /* … */ ] }';
 // —— END LOCAL TEST PAYLOAD ——
 
-if (!empty($test_raw_payload)) {
-    $raw = $test_raw_payload;
-    error_log("🛠️ Using TEST_RAW_PAYLOAD");
-} else {
-    $raw = file_get_contents('php://input');
-}
-error_log("Received raw webhook payload: {$raw}");
+$raw = !empty($test_raw_payload)
+     ? $test_raw_payload
+     : file_get_contents('php://input');
 
-// 1) Decode outer JSON
 $data = json_decode($raw, true);
-if (json_last_error() !== JSON_ERROR_NONE) {
+if (json_last_error()) {
     http_response_code(400);
-    die(json_encode(['status'=>'error','message'=>'Invalid JSON: '.json_last_error_msg()]));
+    die(json_encode(['status'=>'error','message'=>'Invalid JSON']));
 }
 
-// 2) Unwrap if nested under empty key (“”)
+// Unwrap empty-key nesting if needed...
 if (isset($data['']) && is_string($data[''])) {
     $data = json_decode($data[''], true);
-    if (json_last_error() !== JSON_ERROR_NONE) {
+    if (json_last_error()) {
         http_response_code(400);
-        die(json_encode(['status'=>'error','message'=>'Invalid nested JSON: '.json_last_error_msg()]));
+        die(json_encode(['status'=>'error','message'=>'Invalid nested JSON']));
     }
 }
 
-// 3) Extract arrays
-$products   = $data['products'] ?? [];
-$shippingArr= $data['shipping']  ?? [];
-$ship       = $shippingArr[0]    ?? [];
+// Extract products & shipping
+$products    = $data['products']   ?? [];
+$shippingArr = $data['shipping']    ?? [];
+$ship        = $shippingArr[0]      ?? [];
 
-// 4) Determine dates & order ID
-$orderId    = $data['order_id']
-            ?? ($products[0]['order_id'] ?? null);
-$dateRaw    = $data['date_created'] ?? null;
-$dt         = $dateRaw
-            ? new DateTime($dateRaw)
-            : new DateTime('now', new DateTimeZone('UTC'));
+// Determine order date & ID
+$orderId   = $data['order_id'] 
+           ?? ($products[0]['order_id'] ?? null);
+$dtRaw     = $data['date_created'] ?? null;
+$dt        = $dtRaw 
+           ? new DateTime($dtRaw) 
+           : new DateTime('now', new DateTimeZone('UTC'));
 $dt->setTimezone(new DateTimeZone('Pacific/Auckland'));
-$orderDate  = $dt->format('Y-m-d');
+$orderDate = $dt->format('Y-m-d');
 
-// 5) Bootstrap OMINS RPC client
+// Bootstrap OMINS RPC client
 require_once 'jsonRPCClient.php';
-require_once '00_creds.php';  // define $api_url, $sys_id, $username, $password
+require_once '00_creds.php';  // $api_url, $sys_id, $username, $password
 $client = new jsonRPCClient($api_url, false);
 $creds  = (object)[
     'system_id'=>$sys_id,
@@ -61,29 +53,42 @@ $creds  = (object)[
     'password' =>$password
 ];
 
-// 6) Build createOrder header params
-$params = [
+// 1) Create the invoice header (no items yet)
+$header = [
     'promo_group_id'   => 1,
     'orderdate'        => $orderDate,
     'statusdate'       => $orderDate,
     'name'             => trim(($ship['first_name'] ?? '') . ' ' . ($ship['last_name'] ?? '')),
-    'company'          => $ship['company']          ?? '',
-    'address'          => $ship['street_1']         ?? '',
-    'city'             => $ship['city']             ?? '',
-    'postcode'         => $ship['zip']              ?? '',
-    'state'            => $ship['state']            ?? '',
-    'country'          => $ship['country']          ?? '',
-    'phone'            => $ship['phone']            ?? '',
-    'mobile'           => $ship['phone']            ?? '',
-    'email'            => $ship['email']            ?? '',
+    'company'          => $ship['company']  ?? '',
+    'address'          => $ship['street_1'] ?? '',
+    'city'             => $ship['city']     ?? '',
+    'postcode'         => $ship['zip']      ?? '',
+    'state'            => $ship['state']    ?? '',
+    'country'          => $ship['country']  ?? '',
+    'phone'            => $ship['phone']    ?? '',
+    'mobile'           => $ship['phone']    ?? '',
+    'email'            => $ship['email']    ?? '',
     'type'             => 'invoice',
-    'note'             => $orderId
+    'note'             => $orderId 
                           ? "BC Order #{$orderId}"
                           : "BC Order",
-    'lineitemschanged' => 1,
+    // signal we’ll be updating items next
+    'lineitemschanged'=> 0,
 ];
 
-// 7) Inject each product as line item
+try {
+    $res    = $client->createOrder($creds, $header);
+    $invId  = $res['id'] ?? null;
+    if (! $invId) {
+        throw new Exception("No invoice ID returned");
+    }
+} catch (Exception $e) {
+    http_response_code(500);
+    die(json_encode(['status'=>'error','message'=>"createOrder failed: ".$e->getMessage()]));
+}
+
+// 2) Build the update payload with line items
+$update = ['recordid' => $invId, 'lineitemschanged' => 1];
 $idx = 1;
 foreach ($products as $p) {
     $sku   = $p['sku']              ?? '';
@@ -91,23 +96,25 @@ foreach ($products as $p) {
     $qty   = intval($p['quantity']  ?? 1);
     $price = number_format(floatval($p['price_inc_tax'] ?? 0), 4, '.', '');
 
-    $params["upc_{$idx}"]           = $sku;
-    $params["partnumber_{$idx}"]    = $sku;
-    $params["ds-partnumber_{$idx}"] = $name;
-    $params["price_{$idx}"]         = $price;
-    $params["qty_{$idx}"]           = $qty;
+    $update["upc_{$idx}"]           = $sku;
+    $update["partnumber_{$idx}"]    = $sku;
+    $update["ds-partnumber_{$idx}"] = $name;
+    $update["price_{$idx}"]         = $price;
+    $update["qty_{$idx}"]           = $qty;
     $idx++;
 }
 
-// DEBUG: show built params
-error_log("OMINS createOrder params:\n" . print_r($params, true));
-
-// 8) Call createOrder
 try {
-    $res   = $client->createOrder($creds, $params);
-    $invId = $res['id'] ?? null;
-    echo json_encode(['status'=>'success','invoice_id'=>$invId,'raw_response'=>$res]);
+    $uRes = $client->updateOrder($creds, $update);
+    echo json_encode([
+       'status'      => 'success',
+       'invoice_id'  => $invId,
+       'update_resp' => $uRes
+    ]);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+    echo json_encode([
+       'status'=>'error',
+       'message'=>"updateOrder failed: ".$e->getMessage()
+    ]);
 }
