@@ -86,7 +86,7 @@ $header = [
     'lineitemschanged' => 0,
 ];
 
-error_log("🛠️ createOrder() with header: " . print_r($header, true));
+error_log("🛠️ createOrder() header:\n" . print_r($header, true));
 
 try {
     $res = $client->createOrder($creds, $header);
@@ -111,19 +111,19 @@ try {
 // 6) Loop through products and call addOrderItem()
 $added = [];
 foreach ($products as $idx => $p) {
-    // skip index 0 check: idx starts 0, but OMINS wants item 1,2,3...
     $line = $idx + 1;
+
     $itemParams = [
-        'invoice_id'       => $invId,
-        'upc'              => $p['sku']              ?? '',
-        'partnumber'       => $p['sku']              ?? '',
-        'ds-partnumber'    => $p['name_customer']    ?? ($p['name'] ?? ''),
-        'price'            => number_format(floatval($p['price_inc_tax'] ?? 0), 4, '.', ''),
-        'qty'              => intval($p['quantity']   ?? 1),
-        'line_id'          => $line,  // sometimes needed to index
+        'invoice_id'    => $invId,                                         // required
+        'upc'           => $p['sku']            ?? '',                    // SKU
+        'partnumber'    => $p['sku']            ?? '',                    // SKU
+        'ds-partnumber' => $p['name_customer']  ?? ($p['name'] ?? ''),     // description
+        'price'         => number_format(floatval($p['price_inc_tax'] ?? 0), 4, '.', ''), // unit price
+        'quantity'      => intval($p['quantity'] ?? 1),                    // quantity
+        'template_id'   => 0,                                              // must supply numeric ID
     ];
 
-    error_log("🛠️ addOrderItem() call #{$line}: " . print_r($itemParams, true));
+    error_log("🛠️ addOrderItem() #{$line} params:\n" . print_r($itemParams, true));
     try {
         $iRes = $client->addOrderItem($creds, $itemParams);
         error_log("🎯 addOrderItem() response: " . print_r($iRes, true));
