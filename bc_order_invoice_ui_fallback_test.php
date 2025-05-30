@@ -1,82 +1,29 @@
 <?php
 // bc_order_invoice_ui_fallback_test.php
+// 1) create invoice via RPC, 2) log in via UI form, 3) POST line items via UI form
+
 header('Content-Type: application/json');
 error_reporting(E_ALL);
 ini_set('display_errors','1');
 
-// —— LOCAL TEST PAYLOAD ——
-// To test locally, uncomment and paste your JSON here:
-/*
-$test_raw_payload = <<<'JSON'
-{
-  "order_id": 43455,
-  "date_created": "2025-05-20T12:34:56Z",
-  "products": [
-    {
-      "sku": "JuteLight230x160",
-      "name_customer": "Medium Size Handwoven Indian Jute Rug – Light Grey",
-      "price_inc_tax": "259.0000",
-      "quantity": 1
-    }
-  ],
-  "shipping": [
-    {
-      "first_name":"Tanya",
-      "last_name":"Jeffery",
-      "company":"",
-      "street_1":"31a Crane Street",
-      "city":"Mount maunganui",
-      "zip":"3116",
-      "country":"New Zealand",
-      "phone":"0223153244",
-      "email":"tanya.jeffery@gmail.com"
-    }
-  ]
-}
-JSON;
-*/
-// —— END TEST PAYLOAD ——
+// 0) Load creds & payload
+require_once 'jsonRPCClient.php';
+require_once '00_creds.php';   // provides $api_url, $sys_id, $username, $password
 
-// 1) Read raw input
-if (!empty($test_raw_payload)) {
-    $raw = $test_raw_payload;
-    error_log("🛠️ Using TEST_RAW_PAYLOAD");
-} else {
-    $raw = file_get_contents('php://input');
-}
-error_log("📥 Raw payload: {$raw}");
-
+$raw = file_get_contents('php://input');
 $data = json_decode($raw, true);
-if (json_last_error()) {
-    http_response_code(400);
-    die(json_encode(['status'=>'error','message'=>'Invalid JSON: '.json_last_error_msg()]));
-}
-// unwrap Zapier empty‐key if needed
-if (isset($data['']) && is_string($data[''])) {
-    $data = json_decode($data[''], true) ?: $data;
-}
-
-// 2) Extract & normalize
-$orderId    = $data['order_id'] ?? null;
+$orderId    = $data['order_id']   ?? null;
 $dateRaw    = $data['date_created'] ?? null;
 $products   = $data['products']   ?? [];
 $shipping   = $data['shipping'][0] ?? [];
 
-error_log("📦 Products: ".count($products));
-error_log("🚚 Shipping: ".print_r($shipping, true));
-
-// 3) Compute dates
-try {
-    $dt = new DateTime($dateRaw ?: 'now', new DateTimeZone('UTC'));
-} catch (Exception $e) {
-    $dt = new DateTime('now', new DateTimeZone('UTC'));
-}
+// 1) Create invoice header
+$dt = $dateRaw
+    ? new DateTime($dateRaw)
+    : new DateTime('now', new DateTimeZone('UTC'));
 $dt->setTimezone(new DateTimeZone('Pacific/Auckland'));
 $orderDate = $dt->format('Y-m-d');
 
-// 4) JSON-RPC createOrder
-require_once 'jsonRPCClient.php';
-require_once '00_creds.php'; // defines $api_url, $sys_id, $username, $password
 $client = new jsonRPCClient($api_url, false);
 $creds  = (object)[ 'system_id'=>$sys_id, 'username'=>$username, 'password'=>$password ];
 
@@ -98,37 +45,42 @@ $header = [
     'note'             => $orderId ? "BC Order #{$orderId}" : "BC Order",
     'lineitemschanged' => 0,
 ];
-error_log("🛠️ createOrder params: ".print_r($header, true));
-
-try {
-    $res = $client->createOrder($creds, $header);
-    error_log("🎯 createOrder response: ".print_r($res, true));
-    if (is_array($res) && isset($res['id'])) {
-        $invId = $res['id'];
-    } elseif (is_numeric($res)) {
-        $invId = (int)$res;
-    } else {
-        throw new Exception("No invoice ID");
-    }
-    error_log("✅ Invoice ID: {$invId}");
-} catch (Exception $e) {
+$res = $client->createOrder($creds, $header);
+if (isset($res['id'])) {
+    $invId = $res['id'];
+} elseif (is_numeric($res)) {
+    $invId = (int)$res;
+} else {
     http_response_code(500);
-    error_log("❌ createOrder error: ".$e->getMessage());
-    die(json_encode(['status'=>'error','stage'=>'createOrder','message'=>$e->getMessage()]));
+    die(json_encode(['status'=>'error','message'=>'No invoice ID returned']));
 }
 
-// 5) Build UI form‐POST
-$tableid = 1041;
-$postUrl = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php"
-         . "?tableid={$tableid}&id={$invId}";
+// 2) Log in to OMINS UI to get a session cookie
+$cookieFile = sys_get_temp_dir() . '/omins_session.txt';
+$loginUrl   = 'https://omins.snipesoft.net.nz/modules/omins/login.php';
+$loginData  = http_build_query([
+    'username' => $username,
+    'password' => $password,
+    'submit'   => 'Login'
+]);
+$ch = curl_init($loginUrl);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, $loginData);
+curl_setopt($ch, CURLOPT_COOKIEJAR,  $cookieFile);
+curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+$loginResp = curl_exec($ch);
+curl_close($ch);
+// You may check $loginResp to confirm a successful login
 
+// 3) Build & send the line-item form POST
+$postUrl = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid=1041&id={$invId}";
 $form = [
     'command'                => 'save',
     'recordid'               => $invId,
     'omins_submit_system_id' => $sys_id,
     'lineitemschanged'       => 1,
 ];
-
 foreach ($products as $i => $p) {
     $n = $i + 1;
     $form["upc_{$n}"]           = $p['sku'];
@@ -137,27 +89,24 @@ foreach ($products as $i => $p) {
     $form["price_{$n}"]         = number_format($p['price_inc_tax'],4,'.','');
     $form["qty_{$n}"]           = $p['quantity'];
 }
-error_log("🛠️ UI form fields: ".print_r($form, true));
-
-// 6) cURL POST to UI
 $ch = curl_init($postUrl);
 curl_setopt($ch, CURLOPT_POST, true);
 curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($form));
+curl_setopt($ch, CURLOPT_COOKIEJAR,  $cookieFile);
+curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_COOKIEJAR,  '/tmp/omins_cookies.txt');
-curl_setopt($ch, CURLOPT_COOKIEFILE, '/tmp/omins_cookies.txt');
-$response = curl_exec($ch);
-if ($err = curl_error($ch)) {
-    http_response_code(500);
-    error_log("❌ UI cURL error: {$err}");
-    die(json_encode(['status'=>'error','stage'=>'uiPost','message'=>$err]));
-}
+$uiResp = curl_exec($ch);
+$curlErr = curl_error($ch);
 curl_close($ch);
-error_log("🎯 UI response: ".substr($response,0,200));
 
-// 7) Done
+if ($curlErr) {
+    http_response_code(500);
+    die(json_encode(['status'=>'error','stage'=>'uiPost','message'=>$curlErr]));
+}
+
+// 4) Done!
 echo json_encode([
     'status'      => 'success',
     'invoice_id'  => $invId,
-    'ui_response' => substr($response,0,200)
+    'ui_response' => substr($uiResp,0,200)
 ]);
