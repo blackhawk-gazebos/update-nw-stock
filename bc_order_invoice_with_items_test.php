@@ -1,12 +1,12 @@
 <?php
-// bc_order_invoice_with_items_ui_fallback.php
-// Creates an OMINS invoice via JSON-RPC, then POSTS line items through the UI endpoint.
+// bc_order_invoice_with_items_rpc.php
+// Creates an OMINS invoice (header) then adds each line item via addOrderItem()
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
 ini_set('display_errors','1');
 
-// 0) Security: verify shared secret (optional)
+// 0) Security check (optional)
 $secret = getenv('WEBHOOK_SECRET');
 $token  = $_SERVER['HTTP_X_WEBHOOK_TOKEN'] ?? null;
 if ($secret && (! $token || ! hash_equals($secret, $token))) {
@@ -16,7 +16,7 @@ if ($secret && (! $token || ! hash_equals($secret, $token))) {
     exit;
 }
 
-// 1) Read & decode incoming JSON
+// 1) Read & decode webhook payload
 $raw = file_get_contents('php://input');
 error_log("📥 Payload: {$raw}");
 $data = json_decode($raw, true);
@@ -26,24 +26,24 @@ if (json_last_error()) {
     echo json_encode(['status'=>'error','message'=>'Invalid JSON']);
     exit;
 }
-
-// 2) Unwrap Zapier nesting if present
+// unwrap Zapier nested payload
 if (isset($data['']) && is_string($data[''])) {
     $data = json_decode($data[''], true) ?: $data;
 }
 
-// 3) Extract arrays
+// 2) Extract products & shipping
 $products    = $data['products'] ?? [];
 $shippingArr = $data['shipping']  ?? [];
-// handle extra nesting
 if (isset($products[0]) && is_array($products[0]) && !isset($products[0]['sku'])) {
     $products = $products[0];
 }
 $ship = $shippingArr[0] ?? [];
 
-// 4) Determine dates & order ID
-$orderIdRaw = $data['order_id'] ?? ($products[0]['order_id'] ?? null);
-$orderId    = $orderIdRaw;
+error_log("📦 Parsed " . count($products) . " products");
+error_log("🚚 Shipping: " . print_r($ship, true));
+
+// 3) Determine dates & order ID
+$orderId    = $data['order_id'] ?? ($products[0]['order_id'] ?? null);
 $dateRaw    = $data['date_created'] ?? null;
 if ($dateRaw) {
     try { $dt = new DateTime($dateRaw); }
@@ -54,7 +54,9 @@ if ($dateRaw) {
 $dt->setTimezone(new DateTimeZone('Pacific/Auckland'));
 $orderDate = $dt->format('Y-m-d');
 
-// 5) Bootstrap JSON-RPC client
+error_log("📅 OrderDate: {$orderDate}, OrderID: {$orderId}");
+
+// 4) Bootstrap JSON-RPC client
 require_once 'jsonRPCClient.php';
 require_once '00_creds.php';  // $api_url, $sys_id, $username, $password
 $client = new jsonRPCClient($api_url, false);
@@ -64,7 +66,7 @@ $creds  = (object)[
     'password' =>$password,
 ];
 
-// 6) Build header params
+// 5) Build & send createOrder header
 $header = [
     'promo_group_id'   => 1,
     'orderdate'        => $orderDate,
@@ -83,78 +85,64 @@ $header = [
     'note'             => $orderId ? "BC Order #{$orderId}" : "BC Order",
     'lineitemschanged' => 0,
 ];
-error_log("🛠️ createOrder header:\n" . print_r($header, true));
 
-// 7) Call createOrder()
+error_log("🛠️ createOrder() with header: " . print_r($header, true));
+
 try {
     $res = $client->createOrder($creds, $header);
     error_log("🎯 createOrder response: " . print_r($res, true));
-    // OMINS returns a bare ID or ['id'=>...]
     if (is_array($res) && isset($res['id'])) {
         $invId = $res['id'];
     } elseif (is_numeric($res)) {
         $invId = (int)$res;
     } else {
-        throw new Exception("No invoice ID in response");
+        throw new Exception("No invoice ID in createOrder response");
     }
-    error_log("✅ Invoice ID: {$invId}");
+    error_log("✅ Created invoice ID: {$invId}");
 } catch (Exception $e) {
     http_response_code(500);
     error_log("❌ createOrder error: " . $e->getMessage());
-    echo json_encode(['status'=>'error','stage'=>'createOrder','message'=>$e->getMessage(),'raw'=>$res]);
+    echo json_encode([
+        'status'=>'error','stage'=>'createOrder','message'=>$e->getMessage(),'raw'=>$res
+    ]);
     exit;
 }
 
-// 8) Prepare UI POST to invoices_addedit.php
-$tableid = 1041; // your Omins table ID
-$postUrl = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableid}&id={$invId}";
+// 6) Loop through products and call addOrderItem()
+$added = [];
+foreach ($products as $idx => $p) {
+    // skip index 0 check: idx starts 0, but OMINS wants item 1,2,3...
+    $line = $idx + 1;
+    $itemParams = [
+        'invoice_id'       => $invId,
+        'upc'              => $p['sku']              ?? '',
+        'partnumber'       => $p['sku']              ?? '',
+        'ds-partnumber'    => $p['name_customer']    ?? ($p['name'] ?? ''),
+        'price'            => number_format(floatval($p['price_inc_tax'] ?? 0), 4, '.', ''),
+        'qty'              => intval($p['quantity']   ?? 1),
+        'line_id'          => $line,  // sometimes needed to index
+    ];
 
-$form = [
-    'command'                => 'save',
-    'recordid'               => $invId,
-    'omins_submit_system_id' => $sys_id,
-    'lineitemschanged'       => 1,
-];
-// add each line item
-$idx = 1;
-foreach ($products as $p) {
-    $sku   = $p['sku']           ?? '';
-    $name  = $p['name_customer'] ?? ($p['name'] ?? '');
-    $qty   = intval($p['quantity'] ?? 1);
-    $price = number_format(floatval($p['price_inc_tax'] ?? 0), 4, '.', '');
-
-    $form["upc_{$idx}"]           = $sku;
-    $form["partnumber_{$idx}"]    = $sku;
-    $form["ds-partnumber_{$idx}"] = $name;
-    $form["price_{$idx}"]         = $price;
-    $form["qty_{$idx}"]           = $qty;
-    $idx++;
-}
-error_log("🛠️ invoices_addedit.php form:\n" . print_r($form, true));
-
-// 9) Execute cURL POST
-$ch = curl_init($postUrl);
-curl_setopt($ch, CURLOPT_POST, true);
-curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($form));
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_COOKIEJAR, '/tmp/omins_cookies.txt');
-curl_setopt($ch, CURLOPT_COOKIEFILE, '/tmp/omins_cookies.txt');
-$response = curl_exec($ch);
-$curlErr  = curl_error($ch);
-curl_close($ch);
-
-if ($curlErr) {
-    http_response_code(500);
-    error_log("❌ cURL error: {$curlErr}");
-    echo json_encode(['status'=>'error','stage'=>'uiPost','message'=>$curlErr]);
-    exit;
+    error_log("🛠️ addOrderItem() call #{$line}: " . print_r($itemParams, true));
+    try {
+        $iRes = $client->addOrderItem($creds, $itemParams);
+        error_log("🎯 addOrderItem() response: " . print_r($iRes, true));
+        $added[] = ['line'=>$line,'res'=>$iRes];
+    } catch (Exception $e) {
+        error_log("❌ addOrderItem() error on line {$line}: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode([
+            'status'=>'error',
+            'stage'=>"addOrderItem_line{$line}",
+            'message'=>$e->getMessage()
+        ]);
+        exit;
+    }
 }
 
-error_log("🎯 UI POST response (truncated): " . substr($response,0,200));
-
-// 10) Success!
+// 7) All done!
 echo json_encode([
-    'status'      => 'success',
-    'invoice_id'  => $invId,
-    'ui_response' => substr($response,0,200),
+    'status'     => 'success',
+    'invoice_id' => $invId,
+    'items'      => $added
 ]);
