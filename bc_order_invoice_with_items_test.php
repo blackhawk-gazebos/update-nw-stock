@@ -114,13 +114,13 @@ foreach ($products as $idx => $p) {
     $line = $idx + 1;
 
     $itemParams = [
-        'invoice_id'    => $invId,                                         // required
-        'upc'           => $p['sku']            ?? '',                    // SKU
-        'partnumber'    => $p['sku']            ?? '',                    // SKU
-        'ds-partnumber' => $p['name_customer']  ?? ($p['name'] ?? ''),     // description
-        'price'         => number_format(floatval($p['price_inc_tax'] ?? 0), 4, '.', ''), // unit price
-        'quantity'      => intval($p['quantity'] ?? 1),                    // quantity
-        'template_id'   => 0,                                              // must supply numeric ID
+        'invoice_id'     => $invId,                                         // invoice
+        'template_id'    => 0,                                              // template placeholder
+        'qty'            => intval($p['quantity'] ?? 1),                    // <— must be 'qty'
+        'price'          => number_format(floatval($p['price_inc_tax'] ?? 0), 4, '.', ''), // unit price
+        'line_shipping'  => '0.0000',                                        // shipping for this line
+        'ds-partnumber'  => $p['name_customer'] ?? ($p['name'] ?? ''),       // description
+        // you can add more keys here (taxzone, notes, etc.) if needed
     ];
 
     error_log("🛠️ addOrderItem() #{$line} params:\n" . print_r($itemParams, true));
@@ -132,9 +132,9 @@ foreach ($products as $idx => $p) {
         error_log("❌ addOrderItem() error on line {$line}: " . $e->getMessage());
         http_response_code(500);
         echo json_encode([
-            'status'=>'error',
-            'stage'=>"addOrderItem_line{$line}",
-            'message'=>$e->getMessage()
+            'status' => 'error',
+            'stage'  => "addOrderItem_line{$line}",
+            'message'=> $e->getMessage()
         ]);
         exit;
     }
