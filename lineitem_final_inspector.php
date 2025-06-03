@@ -1,7 +1,7 @@
 <?php
-// lineitem_shipping_inspector.php
-// Call addOrderItem() with 'shipping' (not 'line_shipping') and 'item_description'
-// to see the full signature once those four slots are filled.
+// lineitem_line_shipping_inspector.php
+// Call addOrderItem() with 'quantity', 'price', 'line_shipping', 'item_description'
+// to ensure the shipping slot is correctly populated.
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
@@ -17,7 +17,7 @@ $creds  = (object)[
     'password' =>$password
 ];
 
-// 1) Grab invoice_id from ?invoice_id=123
+// 1) Grab invoice_id from ?invoice_id=#
 $invId = isset($_GET['invoice_id']) ? intval($_GET['invoice_id']) : 0;
 if ($invId <= 0) {
     http_response_code(400);
@@ -28,22 +28,22 @@ if ($invId <= 0) {
     exit;
 }
 
-error_log("🔍 Testing addOrderItem() with shipping & item_description on invoice {$invId}");
+error_log("🔍 Testing addOrderItem() with line_shipping on invoice {$invId}");
 
-// 2) Build params with correct key names
+// 2) Build params with corrected key names
 $params = [
     'invoice_id'       => $invId,      // existing invoice
-    'part_id'          => 0,           // so template_cost(0) is valid
+    'part_id'          => 0,           // template_id = 0 so template_cost(0) works
     'quantity'         => 1,           // 3rd slot
     'price'            => '0.0000',    // 5th slot
-    'shipping'         => '0.0000',    // 6th slot (correct key)
+    'line_shipping'    => '0.0000',    // 6th slot (correct key)
     'item_description' => ''           // 7th slot
-    // everything else can be omitted (SQL will fill defaults)
+    // All further slots (tax_area_id, dates, type, notes, taxable, discounts) are omitted and will use SQL defaults
 ];
 
 error_log("🛠️ Calling addOrderItem() with params:\n" . print_r($params, true));
 
-// 3) Call RPC and catch any remaining SQL errors
+// 3) Invoke the RPC call and capture output
 try {
     $res = $client->addOrderItem($creds, $params);
     echo json_encode([
