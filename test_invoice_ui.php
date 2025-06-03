@@ -1,6 +1,6 @@
 <?php
-// rpc_add_line_test.php
-// Hardcoded test: add two products via JSON-RPC to an existing invoice
+// rpc_add_line_final_test.php
+// Hardcoded: add two products via JSON-RPC using exactly the keys OMINS expects.
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
@@ -16,31 +16,30 @@ $creds  = (object)[
     'password' =>$password
 ];
 
-// 1) Specify an existing invoice and known part_ids
-$invoiceId = 30641;    // change to your manually created invoice
-$firstPart = 1868;     // must be a valid part_id in OMINS
-$secondPart = 4762;    // another valid part_id
+// 1) Existing invoice and known part_ids
+$invoiceId  = 30641;  // an invoice you created manually
+$firstPart  = 1868;   // valid part_id
+$secondPart = 4762;   // valid part_id
 
-// 2) Build two sample addOrderItem calls
+// 2) Build two RPC calls with the **correct keys**:
 $lines = [
     [
-      'invoice_id'      => $invoiceId,
-      'part_id'         => $firstPart,
-      'quantity'        => 1,
-      'price'           => '90.0000',
-      'shipping'        => '0.0000',
-      'item_description'=> 'Flag Pole - MED',
-      'taxareaid'       => 1,
-      // omit the rest (OMINS will use defaults)
+      'invoice_id'   => $invoiceId,
+      'part_id'      => $firstPart,
+      'quantity'     => 1,
+      'price'        => '90.0000',
+      'line_shipping'=> '0.0000',
+      'description'  => 'Flag Pole - MED',
+      'taxareaid'    => 1,       // tax zone
     ],
     [
-      'invoice_id'      => $invoiceId,
-      'part_id'         => $secondPart,
-      'quantity'        => 1,
-      'price'           => '0.0000',
-      'shipping'        => '0.0000',
-      'item_description'=> '3m Pro Steel Frame with Carry bag',
-      'taxareaid'       => 1,
+      'invoice_id'   => $invoiceId,
+      'part_id'      => $secondPart,
+      'quantity'     => 1,
+      'price'        => '0.0000',
+      'line_shipping'=> '0.0000',
+      'description'  => '3m Pro Steel Frame with Carry bag',
+      'taxareaid'    => 1,
     ]
 ];
 
@@ -50,13 +49,13 @@ foreach ($lines as $idx => $params) {
     try {
         $res = $client->addOrderItem($creds, $params);
         $results[] = [
-          'line'   => $idx+1,
+          'line'   => $idx + 1,
           'status' => 'success',
           'result' => $res
         ];
     } catch (Exception $e) {
         $results[] = [
-          'line'    => $idx+1,
+          'line'    => $idx + 1,
           'status'  => 'error',
           'message' => $e->getMessage(),
           'params'  => $params
