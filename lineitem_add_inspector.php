@@ -1,6 +1,6 @@
 <?php
-// lineitem_signature_inspector.php
-// Use an existing invoice ID to dump the lineitem_add(...) signature via SQL error.
+// lineitem_full_inspector.php
+// Call addOrderItem() with all positional arguments (part_id=0) to confirm the correct signature.
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
@@ -16,50 +16,54 @@ $creds  = (object)[
     'password' =>$password
 ];
 
-// 1) Determine invoice_id to test against:
-//    - Prefer GET parameter ?invoice_id=123
-//    - Otherwise look for JSON body { "invoice_id": 123 }
-$invId = 0;
-if (isset($_GET['invoice_id'])) {
-    $invId = intval($_GET['invoice_id']);
-} else {
-    $raw = file_get_contents('php://input');
-    if ($raw) {
-        $data = json_decode($raw, true);
-        if (isset($data['invoice_id'])) {
-            $invId = intval($data['invoice_id']);
-        }
-    }
-}
-
+// 1) Determine invoice_id via GET: ?invoice_id=123
+$invId = isset($_GET['invoice_id']) ? intval($_GET['invoice_id']) : 0;
 if ($invId <= 0) {
     http_response_code(400);
     echo json_encode([
         'status'  => 'error',
-        'message' => 'Please supply a valid invoice_id via ?invoice_id= or JSON {"invoice_id":123}'
+        'message' => 'Supply a valid invoice_id via ?invoice_id=123'
     ]);
     exit;
 }
 
-error_log("🕵️ Inspecting addOrderItem() for invoice_id: {$invId}");
+error_log("🕵️ Running full addOrderItem() on invoice {$invId}");
 
-// 2) Call addOrderItem() with ONLY invoice_id, catch resulting SQL error
-$params = ['invoice_id' => $invId];
+// 2) Prepare all required fields
+$params = [
+    'invoice_id'   => $invId,       // must be a valid existing invoice
+    'part_id'      => 0,            // 0 = template, so template_cost(0) works
+    'qty'          => 1,            // quantity
+    'price'        => '0.0000',     // unit price
+    'shipping'     => '0.0000',     // per-line shipping
+    'description'  => '',           // blank description
+    //  - tax_area_id omitted, SQL will pick default via settings_1
+    //  - date_created omitted, SQL will use NOW()
+    //  - type omitted, SQL will use COALESCE(...)
+    //  - notes omitted (becomes '')
+    //  - date_modified omitted (becomes NOW())
+    //  - taxable omitted (SQL default = 5)
+    //  - discount_id omitted (SQL default = NULL)
+    //  - discount_amount omitted (SQL default = '')
+];
+
+error_log("🛠️ Calling addOrderItem() with params:\n" . print_r($params, true));
+
+// 3) Invoke RPC
 try {
     $res = $client->addOrderItem($creds, $params);
     echo json_encode([
-      'status' => 'success',
-      'result' => $res,
-      'params' => $params
+        'status' => 'success',
+        'result' => $res,
+        'params' => $params
     ]);
-    exit;
 } catch (Exception $e) {
+    // 4) If it still errors, dump the full SQL signature
     $msg = $e->getMessage();
     echo json_encode([
-      'status'  => 'error',
-      'stage'   => 'addOrderItem',
-      'message' => $msg,
-      'params'  => $params
+        'status'  => 'error',
+        'stage'   => 'addOrderItem',
+        'message' => $msg,
+        'params'  => $params
     ]);
-    exit;
 }
