@@ -8,12 +8,11 @@ error_reporting(E_ALL);
 ini_set('display_errors','1');
 
 // 1) The URL (replace 30641 if you want to test against another invoice)
-$url = 'https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid=1041&id=30641';
+$url = 'https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid=1041';
 
 // 2) The raw POST body exactly as in your working cURL:
 $postData = "is_pos=0"
     . "&tableid=1041"
-    . "&recordid=30641"
     . "&lets_addNI=0"
     . "&is_pickup=0"
     . "&command=save"
