@@ -1,161 +1,151 @@
 <?php
-// test_create_new_invoice_ui.php
-// Creates a brand‐new invoice (no ID known beforehand) with two hardcoded line items via the OMINS UI endpoint.
+// invoice_ui_direct.php
+// Send a “save invoice” POST using an existing session cookie (no login step).
+// Provides verbose feedback: logs the full POST data, HTTP status code, and returned HTML (truncated).
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
 ini_set('display_errors','1');
 
-require_once '00_creds.php';   // must define $username, $password, and $sys_id
+// === CONFIGURATION ===
+// 1) Set these before running:
+$invoiceId    = '';   // Leave blank to create a new invoice, or set to an existing invoice ID (e.g. '30641')
+$tableId      = '1041';       // OMINS invoice table ID
+$systemId     = '12271';      // Your OMINS system ID
+$sessionCookie = 'PHPSESSID=YOUR_SESS_ID; omins_db=omins_12271'; 
+   // Paste the exact “PHPSESSID=…; omins_db=…” portion from your browser here.
 
-// 1) Log in to OMINS UI to get a session cookie
-$cookieFile = sys_get_temp_dir() . '/omins_new_invoice_cookie.txt';
-$loginUrl   = 'https://omins.snipesoft.net.nz/modules/omins/login.php';
+// 2) Product template ID(s) (numeric) that OMINS requires for each line.
+//    You must replace these with valid template IDs from your OMINS installation.
+$line1_template = 0;  // e.g. 0 if you have a generic template, or 123 for a specific product template
+$line2_template = 0;
 
-$loginData = http_build_query([
-    'username' => $username,
-    'password' => $password,
-    'submit'   => 'Login'
-]);
+// === STEP 1: Build the POST payload ===
+// Start with the minimal required fields; adjust dates, customer info, etc. as needed.
 
-$ch = curl_init($loginUrl);
-curl_setopt_array($ch, [
-    CURLOPT_POST           => true,
-    CURLOPT_POSTFIELDS     => $loginData,
-    CURLOPT_COOKIEJAR      => $cookieFile,
-    CURLOPT_COOKIEFILE     => $cookieFile,
-    CURLOPT_RETURNTRANSFER => true,
-]);
-curl_exec($ch);
-curl_close($ch);
+$postFields = [
+    // Core save flags
+    'command'               => 'save',
+    'tableid'               => $tableId,
+    'recordid'              => $invoiceId,           // blank string -> new invoice
+    'omins_submit_system_id'=> $systemId,
+    'lineitemschanged'      => '1',
 
-// 2) Fetch the “new invoice” form (omit any id parameter)
-$tableId = 1041;  // your OMINS invoices table ID
-$newUrl  = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableId}";
-$ch = curl_init($newUrl);
-curl_setopt_array($ch, [
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_COOKIEFILE     => $cookieFile,
-]);
-$html = curl_exec($ch);
-curl_close($ch);
+    // Invoice header (hardcoded example values; change to taste)
+    'promo_group_id'        => '33',
+    'orderdate'             => '10/06/2025',         // DD/MM/YYYY
+    'statusdate'            => '10/06/2025',
+    'type'                  => 'invoice',
+    'name'                  => 'Test Customer',
+    'company'               => 'Example Co Ltd',
+    'address'               => '45 Example Street',
+    'city'                  => 'Wellington',
+    'postcode'              => '6011',
+    'state'                 => '',
+    'country'               => 'New Zealand',
+    'phone'                 => '021 555 123',
+    'mobile'                => '021 555 123',
+    'email'                 => 'test@example.nz',
+    'statusid'              => '1-processing',
+    'taxable'               => '1',
+    'taxareaid'             => '1',
+    'taxpercentage'         => '15.00000%',
+    'cash_sale'             => '1',
+    'specialsetpaid'        => '0',
+    'specialsetpaiddate'    => '0',
+    'paid'                  => '0',
+    'origpaid'              => '0',
+    'assignedtoid'          => '0',
+    'cid'                   => '0',
+    'contact_id'            => '0',
 
-// 3) Scrape all hidden inputs from that form
-preg_match_all(
-    '/<input[^>]+type=["\']hidden["\'][^>]+name=["\']([^"\']+)["\'][^>]+value=["\']([^"\']*)["\']/i',
-    $html,
-    $hiddenMatches,
-    PREG_SET_ORDER
-);
+    // Remove any “blank” line-item placeholders (UI requires upc, partnumber, etc. but we’ll override)
+    'thelineitems'          => '',
+    'upc'                   => '',
+    'ds-upc'                => '',
+    'matching_upc_to_id'    => '',
+    'partnumber'            => '',
+    'ds-partnumber'         => '',
+    'matching_partnumber_to_id'=> '',
+    'stock_count'           => '',
+    'item_description'      => '',
+    'ds-item_description'   => '',
+    'line_shipping'         => '',
+    'price'                 => '',
+    'qty'                   => '',
+    'extended'              => '',
 
-$form = [];
-foreach ($hiddenMatches as $m) {
-    $form[$m[1]] = $m[2];
-}
+    // ————— LINE #1 (hardcoded) —————
+    'template_1'            => (string)$line1_template,    // REQUIRED: the product template ID
+    'upc_1'                 => '1868',
+    'partnumber_1'          => '1868',
+    'ds-partnumber_1'       => 'MED FLAG POLE',
+    'description_1'         => 'Flag Pole - MED',
+    'line_shipping_1'       => '$0.00',
+    'price_1'               => '$90.0000',
+    'qty_1'                 => '1',
+    'extended_1'            => '$90.00',
 
-// 4) Override or set required header fields for a new invoice
-$form['command']                = 'save';
-$form['recordid']               = '';            // blank for new invoice
-$form['omins_submit_system_id'] = $sys_id;
-$form['lineitemschanged']       = '1';
-
-// Invoice header (hardcoded example values)
-$form['promo_group_id']    = '33';
-$form['orderdate']         = '10/06/2025';        // DD/MM/YYYY
-$form['statusdate']        = '10/06/2025';
-$form['type']              = 'invoice';
-$form['name']              = 'Test Customer';
-$form['company']           = 'Example Co Ltd';
-$form['address']           = '45 Example Street';
-$form['city']              = 'Wellington';
-$form['postcode']          = '6011';
-$form['state']             = '';
-$form['country']           = 'New Zealand';
-$form['phone']             = '021 555 123';
-$form['mobile']            = '021 555 123';
-$form['email']             = 'test@example.nz';
-$form['statusid']          = '1-processing';
-$form['taxable']           = '1';
-$form['taxareaid']         = '1';
-$form['taxpercentage']     = '15.00000%';
-$form['cash_sale']         = '1';
-$form['specialsetpaid']    = '0';
-$form['specialsetpaiddate']= '0';
-$form['paid']              = '0';
-$form['origpaid']          = '0';
-$form['assignedtoid']      = '0';
-$form['cid']               = '0';
-$form['contact_id']        = '0';
-
-// Remove any pre‐existing line-item entries so we start fresh
-foreach ($form as $k => $v) {
-    if (preg_match('/^(upc|partnumber|ds-partnumber|description|line_shipping|price|qty|extended)_[0-9]+$/', $k)) {
-        unset($form[$k]);
-    }
-    if (preg_match('/^line_id_[0-9]+$/', $k)) {
-        unset($form[$k]);
-    }
-}
-
-// 5) Insert two hardcoded line items
-$products = [
-    [
-        'upc'           => '1868',
-        'partnumber'    => '1868',
-        'ds_partnumber' => 'MED FLAG POLE',
-        'description'   => 'Flag Pole - MED',
-        'line_shipping' => '$0.00',
-        'price'         => '$90.0000',
-        'qty'           => '1',
-        'extended'      => '$90.00',
-    ],
-    [
-        'upc'           => '4762',
-        'partnumber'    => '4762',
-        'ds_partnumber' => '3m Frame Pro Steel 24new',
-        'description'   => '3m Pro Steel Frame with Carry bag',
-        'line_shipping' => '$0.00',
-        'price'         => '$0.0000',
-        'qty'           => '1',
-        'extended'      => '$0.00',
-    ]
+    // ————— LINE #2 (hardcoded) —————
+    'template_2'            => (string)$line2_template,
+    'upc_2'                 => '4762',
+    'partnumber_2'          => '4762',
+    'ds-partnumber_2'       => '3m Frame Pro Steel 24new',
+    'description_2'         => '3m Pro Steel Frame with Carry bag',
+    'line_shipping_2'       => '$0.00',
+    'price_2'               => '$0.0000',
+    'qty_2'                 => '1',
+    'extended_2'            => '$0.00',
 ];
 
-foreach ($products as $i => $p) {
-    $n = $i + 1;
-    $form["upc_{$n}"]            = $p['upc'];
-    $form["partnumber_{$n}"]     = $p['partnumber'];
-    $form["ds-partnumber_{$n}"]  = $p['ds_partnumber'];
-    $form["description_{$n}"]    = $p['description'];
-    $form["line_shipping_{$n}"]  = $p['line_shipping'];
-    $form["price_{$n}"]          = $p['price'];
-    $form["qty_{$n}"]            = $p['qty'];
-    $form["extended_{$n}"]       = $p['extended'];
+// === STEP 2: Log full POST data for debugging ===
+error_log("🔧 POST payload:");
+foreach ($postFields as $k => $v) {
+    error_log("    {$k} => {$v}");
 }
 
-// 6) POST the complete form to create the new invoice
-$postUrl = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableId}";
+// === STEP 3: Build and execute the cURL request ===
+$url = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableId}&id={$invoiceId}";
 
-$ch = curl_init($postUrl);
+$ch = curl_init($url);
 curl_setopt_array($ch, [
     CURLOPT_POST           => true,
-    CURLOPT_POSTFIELDS     => http_build_query($form),
-    CURLOPT_COOKIEFILE     => $cookieFile,
-    CURLOPT_COOKIEJAR      => $cookieFile,
+    CURLOPT_POSTFIELDS     => http_build_query($postFields),
     CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HEADER         => true,               // to capture response headers
+    CURLOPT_HTTPHEADER     => [
+        "Cookie: {$sessionCookie}",
+        "Content-Type: application/x-www-form-urlencoded",
+    ],
 ]);
-$saveResp = curl_exec($ch);
-$err      = curl_error($ch);
+$response = curl_exec($ch);
+$curlErr  = curl_error($ch);
+$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-if ($err) {
+// === STEP 4: Prepare feedback ===
+if ($curlErr) {
+    error_log("❌ cURL error: {$curlErr}");
     http_response_code(500);
-    echo json_encode(['status'=>'error','message'=>"cURL error: {$err}"]);
+    echo json_encode([
+        'status'  => 'error',
+        'stage'   => 'curl',
+        'message' => $curlErr
+    ]);
     exit;
 }
 
-// 7) Return a snippet of the HTML response for debugging
+// Split headers/body
+list($respHeaders, $respBody) = explode("\r\n\r\n", $response, 2);
+
+// Log HTTP status and first 200 chars of body
+error_log("✅ HTTP status: {$httpCode}");
+error_log("🔍 Response body (first 200 chars):\n" . substr($respBody, 0, 200));
+
+// === STEP 5: Return JSON feedback ===
 echo json_encode([
-    'status'       => 'success',
-    'html_snippet' => substr($saveResp, 0, 200)
+    'status'       => ($httpCode >= 200 && $httpCode < 300) ? 'success' : 'error',
+    'http_code'    => $httpCode,
+    'headers'      => $respHeaders,
+    'body_snippet' => substr($respBody, 0, 200)
 ]);
