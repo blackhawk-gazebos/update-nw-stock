@@ -109,6 +109,37 @@ if ($fetchErr !== '') {
 // Separate headers vs body from fetch
 list($fetchHeaders, $fetchBody) = explode("\r\n\r\n", $rawFetch, 2);
 
+// === BEGIN: Discover “template_N” options ===
+preg_match_all(
+    '/<select[^>]+name=["\'](template_[0-9]+)["\'][^>]*>(.*?)<\/select>/is',
+    $fetchBody,
+    $selectMatches,
+    PREG_SET_ORDER
+);
+
+if (empty($selectMatches)) {
+    error_log("⚠️ No <select name=\"template_N\"> found in fetched HTML.");
+} else {
+    foreach ($selectMatches as $sm) {
+        $fieldName = $sm[1];   // e.g. "template_1"
+        $innerHtml = $sm[2];   // all <option>…</option> inside this select
+        error_log("🔎 Found <select name=\"{$fieldName}\"> with options:");
+
+        preg_match_all(
+            '/<option[^>]+value=["\']([0-9]+)["\'][^>]*>([^<]*)<\/option>/i',
+            $innerHtml,
+            $optMatches,
+            PREG_SET_ORDER
+        );
+        foreach ($optMatches as $om) {
+            $val = $om[1];     // numeric template ID
+            $txt = trim($om[2]); // user‐visible label
+            error_log("    • {$fieldName}: value=\"{$val}\", label=\"{$txt}\"");
+        }
+    }
+}
+// === END: Discover “template_N” options ===
+
 // Log HTTP code and headers
 error_log("📥 [UI GET] HTTP status: {$fetchCode}");
 error_log("📥 [UI GET] Headers:\n" . $fetchHeaders);
