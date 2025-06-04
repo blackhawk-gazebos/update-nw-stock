@@ -73,7 +73,7 @@ error_log("✅ RPC created invoice ID: {$invoiceId}");
 // -----------------------------------------------------------------------------
 
 // 2a) Copy your valid session cookie (only PHPSESSID & omins_db) from browser
-$sessionCookie = 'PHPSESSID=YOUR_PHPSESSID; omins_db=omins_12271';
+$sessionCookie = 'PHPSESSID=91b5af7917b2462941b6ce69d9463b68; omins_db=omins_12271';
 
 // 2b) Build the URL using the new $invoiceId
 $tableId = 1041;
