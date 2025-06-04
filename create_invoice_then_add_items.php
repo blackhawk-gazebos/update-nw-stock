@@ -1,60 +1,55 @@
 <?php
-// create_then_add_items.php
-// 1) create invoice via RPC → 2) add two hardcoded line items via UI curl (using the exact tested payload)
-
-// ——————————————————————————————————————————————————————————————————————————————
-// REQUIREMENTS:
-// • jsonRPCClient.php
-// • 00_creds.php  (must define: $api_url, $sys_id, $username, $password)
-// ——————————————————————————————————————————————————————————————————————————————
+// create_and_edit_invoice_keep_headers.php
+// 1) Create via RPC → 2) Fetch that invoice’s “edit” form → 3) Parse & preserve all fields →
+// 4) Inject two new line items → 5) POST back to save them on the same invoice.
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
 ini_set('display_errors','1');
 
 require_once 'jsonRPCClient.php';
-require_once '00_creds.php';
+require_once '00_creds.php';  // defines $api_url, $sys_id, $username, $password
 
-// ---------------------
-// STEP 1: CREATE VIA RPC
-// ---------------------
+// -----------------------------------------------------------------------------
+// STEP 1: CREATE A NEW INVOICE VIA JSON‐RPC
+// -----------------------------------------------------------------------------
 
 $client = new jsonRPCClient($api_url, false);
 $creds  = (object)[
-    'system_id'=>$sys_id,
-    'username' =>$username,
-    'password' =>$password
+    'system_id' => $sys_id,
+    'username'  => $username,
+    'password'  => $password
 ];
 
+// Minimal “header only” parameters:
 $today = new DateTime('now', new DateTimeZone('Pacific/Auckland'));
-$orderDate = $today->format('Y-m-d');
+$orderDate = $today->format('Y-m-d'); 
 
 $rpcParams = [
     'promo_group_id'   => 33,
     'orderdate'        => $orderDate,
     'statusdate'       => $orderDate,
-    'name'             => 'RPC→UI Customer',
-    'company'          => 'Integrated Co Ltd',
-    'address'          => '123 Integration Way',
+    'name'             => 'RPC/API Customer',
+    'company'          => 'KeepHeaders Ltd',
+    'address'          => '456 Main Avenue',
     'city'             => 'Wellington',
     'postcode'         => '6011',
     'state'            => '',
     'country'          => 'New Zealand',
-    'phone'            => '021 888 0000',
-    'mobile'           => '021 888 0001',
-    'email'            => 'rpcui@example.nz',
+    'phone'            => '021 777 0000',
+    'mobile'           => '021 777 0001',
+    'email'            => 'keepheaders@example.nz',
     'type'             => 'invoice',
-    'note'             => 'Created via RPC, adding lines via UI curl',
+    'note'             => 'RPC → fetch form → add items',
     'taxable'          => '1',
     'taxareaid'        => 1,
     'discountamount'   => '0.00',
-    'thelineitems'     => [],      // no lines yet
+    'thelineitems'     => [],    // no items yet
     'lineitemschanged' => 0
 ];
 
 try {
     $res = $client->createOrder($creds, $rpcParams);
-    // JSON-RPC might return ['id'=>12345] or just 12345
     if (is_array($res) && isset($res['id'])) {
         $invoiceId = intval($res['id']);
     } elseif (is_numeric($res)) {
@@ -74,149 +69,163 @@ try {
 
 error_log("✅ RPC created invoice ID: {$invoiceId}");
 
-// ---------------------
-// STEP 2: ADD LINE ITEMS VIA UI CURL
-// ---------------------
+// -----------------------------------------------------------------------------
+// STEP 2: FETCH THE “EDIT INVOICE” FORM FOR THAT ID
+// -----------------------------------------------------------------------------
 
-// 2a) Paste your OMINS session cookie (only PHPSESSID & omins_db)
-$cookieHeader = 'PHPSESSID=YOUR_PHPSESSID_VALUE; omins_db=omins_12271';
+// 2a) Copy exactly your OMINS session cookie (only PHPSESSID & omins_db)
+//     from your browser. No other cookies are needed.
+$sessionCookie = 'PHPSESSID=91b5af7917b2462941b6ce69d9463b68; omins_db=omins_12271';
 
-// 2b) Build the URL with the new invoice ID
+// 2b) Build the edit‐URL
 $tableId = 1041;
-$url     = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableId}&id={$invoiceId}";
+$editUrl = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableId}&id={$invoiceId}";
 
-// 2c) Use the exact working POST body from `test_invoice_curl.php` (no changes except replace 30641 → $invoiceId)
-$postData = str_replace(
-    '30641',
-    (string)$invoiceId,
-    "is_pos=0"
-  . "&tableid=1041"
-  . "&recordid=30641"
-  . "&lets_addNI=0"
-  . "&is_pickup=0"
-  . "&command=save"
-  . "&omins_submit_system_id=12271"
-  . "&default_report=10"
-  . "&creation_type=manual"
-  . "&dispatchdate="
-  . "&id=30641"
-  . "&promo_group_id=1"
-  . "&type=invoice"
-  . "&oldType=invoice"
-  . "&ponumber="
-  . "&remote_id=N%2FA"
-  . "&transactions="
-  . "&note="
-  . "&specialsetpaid=0"
-  . "&specialsetpaiddate=0"
-  . "&statusid=1-processing"
-  . "&statuschanged=+0"
-  . "&statusdate=03%2F06%2F2025"
-  . "&paid=0"
-  . "&origpaid=0"
-  . "&emailid=9"
-  . "&cid=0"
-  . "&cash_sale=1"
-  . "&shippingmethod_override=none"
-  . "&ship_instructions="
-  . "&trackingno_0="
-  . "&static_code="
-  . "&thelineitems="
-  . "&lineitemschanged=1"
-  . "&unitcost=0"
-  . "&unitweight=0"
-  . "&taxable=1"
-  . "&imgpath=%2Fcommon%2Fstylesheet%2Fmozilla%2Fimage"
-  . "&thisuser="
-  . "&lets_addNI=0"
-  . "&is_pos=0"
-  . "&upc="
-  . "&ds-upc="
-  . "&matching_upc_to_id="
-  . "&partnumber="
-  . "&ds-partnumber="
-  . "&matching_partnumber_to_id="
-  . "&stock_count="
-  . "&item_description="
-  . "&ds-item_description="
-  . "&line_shipping="
-  . "&price="
-  . "&qty="
-  . "&extended="
-  // Line #1
-  . "&line_id_1=119339"
-  . "&shipping_description_1="
-  . "&upc_1=1868"
-  . "&ds-upc_1="
-  . "&partnumber_1=1868"
-  . "&ds-partnumber_1=MED+FLAG+POLE"
-  . "&description_1=Flag+Pole+-+MED"
-  . "&line_shipping_1=%240.00"
-  . "&price_1=%2490.0000"
-  . "&qty_1=1"
-  . "&extended_1=%2490.00"
-  // Line #2
-  . "&upc_2=4762"
-  . "&ds-upc_2="
-  . "&matching_upc_to_id="
-  . "&partnumber_2=4762"
-  . "&ds-partnumber_2=3m+Frame+Pro+Steel+24new"
-  . "&matching_partnumber_to_id="
-  . "&stock_count_2=153"
-  . "&description_2=3m+Pro+Steel+Frame+with+Carry+bag"
-  . "&line_shipping_2=%240.00"
-  . "&price_2=%240.0000"
-  . "&qty_2=1"
-  . "&extended_2=%240.00"
-  . "&linenumber=2"
-  . "&shipping=%240.00"
-  . "&subextended=%2490.00"
-  . "&discountid=0"
-  . "&discount=0"
-  . "&tax_inclusive=1"
-  . "&taxareaid=1"
-  . "&taxpercentage=15.00000%25"
-  . "&totalBD=90"
-  . "&discountamount=%240.00"
-  . "&totaltni=%2490.00"
-  . "&tax=%2411.74"
-  . "&totalti=%2490.00"
-  . "&totaltaxable=0"
-  . "&payment_notes="
-  . "&payment_date=04%2F06%2F2025"
-  . "&payment_method=1"
-  . "&payment_amount=%240.00"
-  . "&total_paid=%240.00"
-  . "&balance=%2490.00"
-  . "&paymentsnumber=0"
-  . "&specialinstructions="
-  . "&printedinstructions=Thank+You+For+Your+Order."
-  . "&omins_submit_system_id=12271"
-  . "&createdby="
-  . "&creationdate=03%2F06%2F2025+10%3A06+am"
-  . "&modifiedby="
-  . "&cancelclick=0"
-  . "&modifieddate=03%2F06%2F2025+10%3A08+am"
-);
+$ch = curl_init($editUrl);
+curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HTTPHEADER     => [
+        "Cookie: {$sessionCookie}",
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    ],
+]);
+$html = curl_exec($ch);
+$err  = curl_error($ch);
+curl_close($ch);
 
-// Log the exact POST payload for debugging
-error_log("🔧 UI POST payload for invoice {$invoiceId}:");
-foreach (explode('&', $postData) as $chunk) {
-    error_log("    {$chunk}");
+if ($err !== '') {
+    http_response_code(500);
+    echo json_encode([
+        'status'  => 'error',
+        'stage'   => 'fetchForm',
+        'message' => $err
+    ]);
+    exit;
 }
 
-// 2d) Perform the cURL
-$ch = curl_init($url);
+// Log the full fetched HTML (for debugging—inspect this if something’s missing)
+error_log("📄 Fetched “Edit Invoice” HTML for invoice {$invoiceId}:\n" . $html);
+
+// -----------------------------------------------------------------------------
+// STEP 3: PARSE (AND PRESERVE) ALL FORM FIELDS FROM THAT HTML
+// -----------------------------------------------------------------------------
+
+$formData = [];
+
+// 3a) Capture every <input … name="X" value="Y" …>
+preg_match_all(
+    '/<input[^>]+name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\'][^>]*>/Ui',
+    $html,
+    $inputMatches,
+    PREG_SET_ORDER
+);
+foreach ($inputMatches as $m) {
+    // Since it matches *both* type="hidden" and visible inputs, we preserve everything
+    $formData[$m[1]] = $m[2];
+}
+
+// 3b) Capture every <textarea name="X">…</textarea>
+preg_match_all(
+    '/<textarea[^>]+name=["\']([^"\']+)["\'][^>]*>(.*?)<\/textarea>/is',
+    $html,
+    $areaMatches,
+    PREG_SET_ORDER
+);
+foreach ($areaMatches as $m) {
+    $formData[$m[1]] = $m[2];
+}
+
+// Note: Most of OMINS’s form uses <input> rather than <select>, so we already have
+//       promo_group_id, orderdate, type, oldType, etc., collected above.
+
+// Log how many fields we parsed
+error_log("🔍 Parsed formData fields count: " . count($formData));
+
+// -----------------------------------------------------------------------------
+// STEP 4: OVERRIDE ONLY THE NECESSARY FIELDS & INJECT LINE ITEMS
+// -----------------------------------------------------------------------------
+
+// 4a) We must tell OMINS this is a “Save” on that same invoice
+$formData['command']                = 'save';
+$formData['recordid']               = $invoiceId;         // ensure we update, not create a new one
+$formData['omins_submit_system_id'] = $sys_id;            // from 00_creds.php
+$formData['lineitemschanged']       = '1';                // flag that lines have changed
+
+// 4b) Remove any previously existing line‐item keys so we can insert ours cleanly
+foreach ($formData as $key => $_) {
+    // We clear out any key matching “upc_N, ds-upc_N, partnumber_N, ds-partnumber_N, 
+    // description_N, line_shipping_N, price_N, qty_N, extended_N, template_N”
+    if (preg_match('/^(upc|ds\-upc|partnumber|ds\-partnumber|description|line_shipping|price|qty|extended|template)_[0-9]+$/i', $key)) {
+        unset($formData[$key]);
+    }
+}
+
+// 4c) Inject exactly two line items (you can replace these hardcoded values with dynamic ones later)
+//     Note: We include “template_1” and “template_2”—OMINS usually requires a template ID. 
+//           If “0” causes SQL errors, change to a valid template ID from your OMINS “Product Templates.”
+$products = [
+    [
+        'template'    => '0',                       // placeholder: replace with a valid template ID if needed
+        'upc'         => '1868',
+        'partnumber'  => '1868',
+        'ds_partno'   => 'MED FLAG POLE',
+        'description' => 'Flag Pole - MED',
+        'line_ship'   => '$0.00',
+        'price'       => '$90.0000',
+        'qty'         => '1',
+        'extended'    => '$90.00',
+    ],
+    [
+        'template'    => '0',
+        'upc'         => '4762',
+        'partnumber'  => '4762',
+        'ds_partno'   => '3m Frame Pro Steel 24new',
+        'description' => '3m Pro Steel Frame with Carry bag',
+        'line_ship'   => '$0.00',
+        'price'       => '$0.0000',
+        'qty'         => '1',
+        'extended'    => '$0.00',
+    ]
+];
+
+foreach ($products as $i => $p) {
+    $n = $i + 1;
+    $formData["template_{$n}"]     = $p['template'];
+    $formData["upc_{$n}"]          = $p['upc'];
+    $formData["partnumber_{$n}"]   = $p['partnumber'];
+    $formData["ds-partnumber_{$n}"]= $p['ds_partno'];
+    $formData["description_{$n}"]  = $p['description'];
+    $formData["line_shipping_{$n}"] = $p['line_ship'];
+    $formData["price_{$n}"]        = $p['price'];
+    $formData["qty_{$n}"]          = $p['qty'];
+    $formData["extended_{$n}"]     = $p['extended'];
+}
+
+// 4d) Debug: log a sample of the final formData keys/values
+error_log("⚙️ Final formData (partial):");
+$keys = array_keys($formData);
+for ($i = 0; $i < min(30, count($keys)); $i++) {
+    $k = $keys[$i];
+    error_log("    {$k} => {$formData[$k]}");
+}
+
+// -----------------------------------------------------------------------------
+// STEP 5: POST BACK THE FULL FORM TO SAVE THE LIST ITEMS
+// -----------------------------------------------------------------------------
+
+$postUrl = $editUrl; 
+
+$ch = curl_init($postUrl);
 curl_setopt_array($ch, [
     CURLOPT_POST           => true,
-    CURLOPT_POSTFIELDS     => $postData,
+    CURLOPT_POSTFIELDS     => http_build_query($formData),
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_HEADER         => true, 
+    CURLOPT_HEADER         => true,
     CURLOPT_HTTPHEADER     => [
         "Content-Type: application/x-www-form-urlencoded",
-        "Cookie: {$cookieHeader}",
-        "Referer: https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableId}&id={$invoiceId}",
-        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+        "Cookie: {$sessionCookie}",
+        "Referer: {$editUrl}",
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
     ],
 ]);
 $response = curl_exec($ch);
@@ -224,7 +233,7 @@ $curlErr  = curl_error($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-if ($curlErr) {
+if ($curlErr !== '') {
     http_response_code(500);
     echo json_encode([
         'status'  => 'error',
@@ -234,16 +243,15 @@ if ($curlErr) {
     exit;
 }
 
-// Split headers & body
+// Separate headers & body for logging
 list($respHeaders, $respBody) = explode("\r\n\r\n", $response, 2);
 
-// Log the UI response
 error_log("✅ UI POST HTTP status: {$httpCode}");
 error_log("🔍 UI response body (first 200 chars):\n" . substr($respBody, 0, 200));
 
-// ---------------------
-// FINAL RESPONSE
-// ---------------------
+// -----------------------------------------------------------------------------
+// FINAL: RETURN JSON SUMMARY
+// -----------------------------------------------------------------------------
 
 echo json_encode([
     'status'       => ($httpCode === 302) ? 'success' : 'error',
