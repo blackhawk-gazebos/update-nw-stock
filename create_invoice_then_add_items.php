@@ -1,24 +1,94 @@
 <?php
-// test_invoice_curl.php
+// create_then_add_items.php
+// 1) create invoice via RPC → 2) add two hardcoded line items via UI curl (using the exact tested payload)
+
 // ——————————————————————————————————————————————————————————————————————————————
-// Directly POSTs the same form‐fields that you copied from browser “Save” when editing
-// invoice 30641. This script alone will edit invoice 30641 and add two hardcoded lines.
-// It DOES NOT create a new invoice.
+// REQUIREMENTS:
+// • jsonRPCClient.php
+// • 00_creds.php  (must define: $api_url, $sys_id, $username, $password)
 // ——————————————————————————————————————————————————————————————————————————————
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
 ini_set('display_errors','1');
 
-// 1) Target invoice ID (hardcoded to 30641 here):
-$invoiceId = 30641;
-$tableId   = 1041;
+require_once 'jsonRPCClient.php';
+require_once '00_creds.php';
 
-// 2) URL exactly as in your working cURL:
-$url = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableId}&id={$invoiceId}";
+// ---------------------
+// STEP 1: CREATE VIA RPC
+// ---------------------
 
-// 3) “POST body” exactly as you had it—every instance of “30641” stays as is.
-$postData =
+$client = new jsonRPCClient($api_url, false);
+$creds  = (object)[
+    'system_id'=>$sys_id,
+    'username' =>$username,
+    'password' =>$password
+];
+
+$today = new DateTime('now', new DateTimeZone('Pacific/Auckland'));
+$orderDate = $today->format('Y-m-d');
+
+$rpcParams = [
+    'promo_group_id'   => 33,
+    'orderdate'        => $orderDate,
+    'statusdate'       => $orderDate,
+    'name'             => 'RPC→UI Customer',
+    'company'          => 'Integrated Co Ltd',
+    'address'          => '123 Integration Way',
+    'city'             => 'Wellington',
+    'postcode'         => '6011',
+    'state'            => '',
+    'country'          => 'New Zealand',
+    'phone'            => '021 888 0000',
+    'mobile'           => '021 888 0001',
+    'email'            => 'rpcui@example.nz',
+    'type'             => 'invoice',
+    'note'             => 'Created via RPC, adding lines via UI curl',
+    'taxable'          => '1',
+    'taxareaid'        => 1,
+    'discountamount'   => '0.00',
+    'thelineitems'     => [],      // no lines yet
+    'lineitemschanged' => 0
+];
+
+try {
+    $res = $client->createOrder($creds, $rpcParams);
+    // JSON-RPC might return ['id'=>12345] or just 12345
+    if (is_array($res) && isset($res['id'])) {
+        $invoiceId = intval($res['id']);
+    } elseif (is_numeric($res)) {
+        $invoiceId = intval($res);
+    } else {
+        throw new Exception("Unexpected createOrder response: " . print_r($res, true));
+    }
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode([
+        'status'  => 'error',
+        'stage'   => 'createOrder',
+        'message' => $e->getMessage()
+    ]);
+    exit;
+}
+
+error_log("✅ RPC created invoice ID: {$invoiceId}");
+
+// ---------------------
+// STEP 2: ADD LINE ITEMS VIA UI CURL
+// ---------------------
+
+// 2a) Paste your OMINS session cookie (only PHPSESSID & omins_db)
+$cookieHeader = 'PHPSESSID=91b5af7917b2462941b6ce69d9463b68; omins_db=omins_12271';
+
+// 2b) Build the URL with the new invoice ID
+$tableId = 1041;
+$url     = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableId}&id={$invoiceId}";
+
+// 2c) Use the exact working POST body from `test_invoice_curl.php` (no changes except replace 30641 → $invoiceId)
+$postData = str_replace(
+    '30641',
+    (string)$invoiceId,
     "is_pos=0"
   . "&tableid=1041"
   . "&recordid=30641"
@@ -89,7 +159,7 @@ $postData =
   . "&price="
   . "&qty="
   . "&extended="
-  // —–– LINE #1
+  // Line #1
   . "&line_id_1=119339"
   . "&shipping_description_1="
   . "&upc_1=1868"
@@ -101,7 +171,7 @@ $postData =
   . "&price_1=%2490.0000"
   . "&qty_1=1"
   . "&extended_1=%2490.00"
-  // —–– LINE #2
+  // Line #2
   . "&upc_2=4762"
   . "&ds-upc_2="
   . "&matching_upc_to_id="
@@ -142,36 +212,58 @@ $postData =
   . "&creationdate=03%2F06%2F2025+10%3A06+am"
   . "&modifiedby="
   . "&cancelclick=0"
-  . "&modifieddate=03%2F06%2F2025+10%3A08+am";
+  . "&modifieddate=03%2F06%2F2025+10%3A08+am"
+);
 
-// 4) Paste your valid session cookie (only PHPSESSID & omins_db) here:
-$cookieHeader = 'PHPSESSID=91b5af7917b2462941b6ce69d9463b68; omins_db=omins_12271';
+// Log the exact POST payload for debugging
+error_log("🔧 UI POST payload for invoice {$invoiceId}:");
+foreach (explode('&', $postData) as $chunk) {
+    error_log("    {$chunk}");
+}
 
+// 2d) Perform the cURL
 $ch = curl_init($url);
 curl_setopt_array($ch, [
     CURLOPT_POST           => true,
     CURLOPT_POSTFIELDS     => $postData,
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_HEADER         => true,
+    CURLOPT_HEADER         => true, 
     CURLOPT_HTTPHEADER     => [
-        'Content-Type: application/x-www-form-urlencoded',
+        "Content-Type: application/x-www-form-urlencoded",
         "Cookie: {$cookieHeader}",
-        'Referer: https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid=1041&id=30641',
-        'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36'
+        "Referer: https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableId}&id={$invoiceId}",
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
     ],
 ]);
 $response = curl_exec($ch);
-$err      = curl_error($ch);
+$curlErr  = curl_error($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-if ($err) {
-    echo json_encode(['status'=>'error','message'=>$err]);
+if ($curlErr) {
+    http_response_code(500);
+    echo json_encode([
+        'status'  => 'error',
+        'stage'   => 'uiFormPost',
+        'message' => $curlErr
+    ]);
     exit;
 }
 
+// Split headers & body
+list($respHeaders, $respBody) = explode("\r\n\r\n", $response, 2);
+
+// Log the UI response
+error_log("✅ UI POST HTTP status: {$httpCode}");
+error_log("🔍 UI response body (first 200 chars):\n" . substr($respBody, 0, 200));
+
+// ---------------------
+// FINAL RESPONSE
+// ---------------------
+
 echo json_encode([
-    'status'       => ($httpCode === 302 ? 'success' : 'error'),
+    'status'       => ($httpCode === 302) ? 'success' : 'error',
+    'invoice_id'   => $invoiceId,
     'http_code'    => $httpCode,
-    'body_snippet' => substr($response, 0, 200)
+    'body_snippet' => substr($respBody, 0, 200)
 ]);
