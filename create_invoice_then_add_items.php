@@ -1,9 +1,6 @@
 <?php
-// create_and_edit_invoice.php
-// 1) Create a new invoice via JSON‐RPC (createOrder).
-// 2) GET that invoice’s “edit” form, parse hidden fields + existing inputs.
-// 3) Inject two hardcoded line items and POST back to save on that invoice.
-// 4) Log verbose output (both RPC and UI steps).
+// create_and_edit_invoice_debug.php
+// 1) create via RPC, 2) fetch “Edit Invoice” form HTML (full), 3) parse + inject line items (with template_1/template_2), 4) POST back, 5) log everything.
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
@@ -12,17 +9,17 @@ ini_set('display_errors','1');
 require_once 'jsonRPCClient.php';
 require_once '00_creds.php'; // defines: $api_url, $sys_id, $username, $password
 
-// === STEP 1: CREATE A NEW INVOICE HEADER VIA JSON‐RPC ===
+// ----------------------------------------------------------------------------
+// STEP 1: CREATE A NEW INVOICE VIA JSON-RPC
+// ----------------------------------------------------------------------------
 
 $client = new jsonRPCClient($api_url, false);
 $creds  = (object)[
-    'system_id' => $sys_id,
-    'username'  => $username,
-    'password'  => $password
+    'system_id'=> $sys_id,
+    'username' => $username,
+    'password' => $password
 ];
 
-// Build minimal createOrder parameters
-// (no line items yet—just header info)
 $today = new DateTime('now', new DateTimeZone('Pacific/Auckland'));
 $orderDate = $today->format('Y-m-d');
 
@@ -30,22 +27,21 @@ $rpcParams = [
     'promo_group_id'   => 33,
     'orderdate'        => $orderDate,
     'statusdate'       => $orderDate,
-    'name'             => 'RPC+UI Customer',
-    'company'          => 'RPC Co Ltd',
-    'address'          => '123 RPC Road',
+    'name'             => 'RPC/UI Debug Customer',
+    'company'          => 'Debug Co Ltd',
+    'address'          => '45 Debug Lane',
     'city'             => 'Wellington',
     'postcode'         => '6011',
     'state'            => '',
     'country'          => 'New Zealand',
-    'phone'            => '021 555 0000',
-    'mobile'           => '021 555 0001',
-    'email'            => 'rpc@example.nz',
+    'phone'            => '021 999 0000',
+    'mobile'           => '021 999 0001',
+    'email'            => 'debug@example.nz',
     'type'             => 'invoice',
-    'note'             => 'Created via RPC; now adding lines via UI form',
+    'note'             => 'Debug: RPC → UI form',
     'taxable'          => '1',
     'taxareaid'        => 1,
     'discountamount'   => '0.00',
-    // no lines yet:
     'thelineitems'     => [],
     'lineitemschanged' => 0,
 ];
@@ -57,7 +53,7 @@ try {
     } elseif (is_numeric($createRes)) {
         $invoiceId = intval($createRes);
     } else {
-        throw new Exception("Unexpected createOrder response");
+        throw new Exception("Unexpected createOrder response: " . print_r($createRes, true));
     }
 } catch (Exception $e) {
     http_response_code(500);
@@ -71,53 +67,50 @@ try {
 
 error_log("✅ RPC created invoice ID: {$invoiceId}");
 
-// === STEP 2: FETCH THAT INVOICE’S EDIT FORM ===
+// ----------------------------------------------------------------------------
+// STEP 2: FETCH THE INVOICE “EDIT” FORM (RAW HTML)
+// ----------------------------------------------------------------------------
 
-// 2a) Copy your valid OMINS session cookie (just PHPSESSID & omins_db).
-//     Log into OMINS in your browser, open dev tools → Application → Cookies,
-//     then copy the “PHPSESSID=…; omins_db=…” string exactly.
+// 2a) Paste your OMINS session cookie (PHPSESSID & omins_db). Only these two.
 $sessionCookie = 'PHPSESSID=91b5af7917b2462941b6ce69d9463b68; omins_db=omins_12271';
 
-// 2b) Build the URL for editing that invoice
+// 2b) Build the Edit URL
 $tableId = 1041;
 $editUrl = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableId}&id={$invoiceId}";
 
 $ch = curl_init($editUrl);
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_COOKIEFILE     => $sessionCookie,
-    CURLOPT_COOKIEJAR      => $sessionCookie,
+    CURLOPT_HEADER         => false,
     CURLOPT_HTTPHEADER     => [
         "Cookie: {$sessionCookie}",
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
     ],
 ]);
 $html = curl_exec($ch);
-$err  = curl_error($ch);
+$curlErr = curl_error($ch);
 curl_close($ch);
 
-if ($err) {
+if ($curlErr !== '') {
     http_response_code(500);
     echo json_encode([
         'status'  => 'error',
-        'stage'   => 'fetchEditForm',
-        'message' => $err
+        'stage'   => 'fetchForm',
+        'message' => $curlErr
     ]);
     exit;
 }
 
-// === STEP 3: PARSE HIDDEN INPUTS (AND ANY EXISTING TEXT FIELDS) ===
+// Log full HTML for debugging (it can be large)
+error_log("📄 Full “Edit Invoice” HTML for invoice {$invoiceId}:\n" . $html);
 
-// We’ll collect all <input type="hidden" name="..." value="..."> and also
-// any <input name="field" value="..." /> for fields we need to preserve.
-//
-// Regex to match:
-//   <input ... type="hidden" ... name="X" value="Y" ...
-//   <input ... name="X" value="Y" ...>  (some visible fields are also needed, e.g. promo_group_id)
+// ----------------------------------------------------------------------------
+// STEP 3: PARSE HIDDEN INPUTS + TEXT FIELDS + TEXTAREAS
+// ----------------------------------------------------------------------------
 
 $formData = [];
 
-// 3a) Hidden inputs
+// 3a) Capture every <input type="hidden" name="X" value="Y">
 preg_match_all(
     '/<input[^>]+type=["\']hidden["\'][^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\'][^>]*>/i',
     $html,
@@ -128,8 +121,7 @@ foreach ($hiddenMatches as $m) {
     $formData[$m[1]] = $m[2];
 }
 
-// 3b) Some editable text fields we want to preserve (e.g. promo_group_id, name, company, address, etc.)
-//    We only override the ones we intend to set. To be safe, grab <input name="X" value="Y"> (no type attr required).
+// 3b) Capture any <input name="X" value="Y"> (visible or hidden)
 preg_match_all(
     '/<input[^>]+name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\'][^>]*>/i',
     $html,
@@ -137,16 +129,14 @@ preg_match_all(
     PREG_SET_ORDER
 );
 foreach ($textMatches as $m) {
-    // If not already stored by hidden, add it:
     if (!isset($formData[$m[1]])) {
         $formData[$m[1]] = $m[2];
     }
 }
 
-// 3c) Some <textarea name="X">...</textarea> might exist (e.g. “note”, “ship_instructions”).
-//    We’ll capture those too.
+// 3c) Capture any <textarea name="X">…</textarea>
 preg_match_all(
-    '/<textarea[^>]+name=["\']([^"\']+)["\'][^>]*>([^<]*)<\/textarea>/i',
+    '/<textarea[^>]+name=["\']([^"\']+)["\'][^>]*>(.*?)<\/textarea>/is',
     $html,
     $areaMatches,
     PREG_SET_ORDER
@@ -155,81 +145,93 @@ foreach ($areaMatches as $m) {
     $formData[$m[1]] = $m[2];
 }
 
-// 3d) Debug: log how many fields we’ve grabbed
-error_log("🔍 Parsed form fields count: " . count($formData));
+// 3d) (Debug) Show total parsed fields count
+error_log("🔍 Parsed form data count: " . count($formData));
 
-// === STEP 4: OVERRIDE/SET HEADER VALUES & INJECT LINE ITEMS ===
+// 3e) (Debug) Log first 20 keys of parsed form data
+$keys = array_keys($formData);
+for ($i = 0; $i < min(20, count($keys)); $i++) {
+    error_log("    Parsed field: {$keys[$i]} => {$formData[$keys[$i]]}");
+}
 
-// 4a) Mark as “save” and override any header fields we want:
+// ----------------------------------------------------------------------------
+// STEP 4: OVERRIDE/SET HEADER VALUES & INJECT LINE ITEMS (WITH TEMPLATE IDs)
+// ----------------------------------------------------------------------------
+
+// 4a) Ensure we’re saving this existing invoice
 $formData['command']                = 'save';
-$formData['recordid']               = $invoiceId;        // ensure we are updating this invoice
-$formData['omins_submit_system_id'] = $sys_id;           // from 00_creds.php
+$formData['recordid']               = $invoiceId;
+$formData['omins_submit_system_id'] = $sys_id;
 $formData['lineitemschanged']       = '1';
 
-// 4b) Example: override name/company/address if you wish (optional)
-//$formData['name']     = 'Overridden Name';
-//$formData['company']  = 'Overridden Company';
-
-// 4c) Remove any existing line-item keys, so we start with a clean slate:
+// 4b) Remove any existing line-item keys, so we start “fresh”
 foreach ($formData as $key => $val) {
-    if (preg_match('/^(upc|ds-upc|partnumber|ds-partnumber|description|line_shipping|price|qty|extended|line_id)_[0-9]+$/', $key)) {
+    if (preg_match('/^(upc|ds-upc|partnumber|ds-partnumber|description|line_shipping|price|qty|extended|line_id|template)_[0-9]+$/i', $key)) {
         unset($formData[$key]);
     }
 }
 
-// 4d) Inject two hardcoded line items (replace with dynamic Zapier data as needed)
+// 4c) Inject two line items—including “template_1” and “template_2” fields
+//     (Change “0” to a valid template ID if your OMINS requires it.)
+
 $products = [
     [
-        'upc'           => '1868',
-        'partnumber'    => '1868',
-        'ds_partnumber' => 'MED FLAG POLE',
-        'description'   => 'Flag Pole - MED',
-        'line_shipping' => '$0.00',
-        'price'         => '$90.0000',
-        'qty'           => '1',
-        'extended'      => '$90.00',
+        'template'    => '0',                     // placeholder; replace with valid template ID if needed
+        'upc'         => '1868',
+        'partnumber'  => '1868',
+        'ds_partno'   => 'MED FLAG POLE',
+        'description' => 'Flag Pole - MED',
+        'line_ship'   => '$0.00',
+        'price'       => '$90.0000',
+        'qty'         => '1',
+        'extended'    => '$90.00',
     ],
     [
-        'upc'           => '4762',
-        'partnumber'    => '4762',
-        'ds_partnumber' => '3m Frame Pro Steel 24new',
-        'description'   => '3m Pro Steel Frame with Carry bag',
-        'line_shipping' => '$0.00',
-        'price'         => '$0.0000',
-        'qty'           => '1',
-        'extended'      => '$0.00',
-    ]
+        'template'    => '0',
+        'upc'         => '4762',
+        'partnumber'  => '4762',
+        'ds_partno'   => '3m Frame Pro Steel 24new',
+        'description' => '3m Pro Steel Frame with Carry bag',
+        'line_ship'   => '$0.00',
+        'price'       => '$0.0000',
+        'qty'         => '1',
+        'extended'    => '$0.00',
+    ],
 ];
 
 foreach ($products as $i => $p) {
-    $n = $i + 1;
-    $formData["upc_{$n}"]            = $p['upc'];
-    $formData["partnumber_{$n}"]     = $p['partnumber'];
-    $formData["ds-partnumber_{$n}"]  = $p['ds_partnumber'];
-    $formData["description_{$n}"]    = $p['description'];
-    $formData["line_shipping_{$n}"]  = $p['line_shipping'];
-    $formData["price_{$n}"]          = $p['price'];
-    $formData["qty_{$n}"]            = $p['qty'];
-    $formData["extended_{$n}"]       = $p['extended'];
+    $idx = $i + 1;
+    // If a <select name="template_{$idx}"> exists in the form, setting this ensures OMINS knows which template to use.
+    $formData["template_{$idx}"]    = $p['template'];
+    $formData["upc_{$idx}"]         = $p['upc'];
+    $formData["partnumber_{$idx}"]  = $p['partnumber'];
+    $formData["ds-partnumber_{$idx}"]= $p['ds_partno'];
+    $formData["description_{$idx}"] = $p['description'];
+    $formData["line_shipping_{$idx}"]= $p['line_ship'];
+    $formData["price_{$idx}"]       = $p['price'];
+    $formData["qty_{$idx}"]         = $p['qty'];
+    $formData["extended_{$idx}"]    = $p['extended'];
 }
 
-// 4e) Log a subset of final form data for debugging
-error_log("⚙️ Final form data (showing key=value pairs):");
-foreach ($formData as $k => $v) {
-    // Only show up to the first 50 fields for brevity
-    error_log("    {$k} => {$v}");
+// 4d) (Debug) Log final form data keys (first 30)
+error_log("⚙️ Final form data keys (partial):");
+$allKeys = array_keys($formData);
+for ($i = 0; $i < min(30, count($allKeys)); $i++) {
+    error_log("    {$allKeys[$i]} => {$formData[$allKeys[$i]]}");
 }
 
-// === STEP 5: POST BACK THE COMPLETE FORM ===
+// ----------------------------------------------------------------------------
+// STEP 5: POST BACK THE COMPLETE FORM TO SAVE LINES
+// ----------------------------------------------------------------------------
 
-$postUrl = $editUrl; // same URL we fetched a moment ago
+$postUrl = $editUrl; // same endpoint we fetched
 
 $ch = curl_init($postUrl);
 curl_setopt_array($ch, [
     CURLOPT_POST           => true,
     CURLOPT_POSTFIELDS     => http_build_query($formData),
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_HEADER         => true,  // so we can inspect the redirect
+    CURLOPT_HEADER         => true,
     CURLOPT_HTTPHEADER     => [
         "Content-Type: application/x-www-form-urlencoded",
         "Cookie: {$sessionCookie}",
@@ -242,7 +244,7 @@ $curlErr  = curl_error($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-if ($curlErr) {
+if ($curlErr !== '') {
     http_response_code(500);
     echo json_encode([
         'status'  => 'error',
@@ -255,11 +257,13 @@ if ($curlErr) {
 // Separate headers & body
 list($respHeaders, $respBody) = explode("\r\n\r\n", $response, 2);
 
-// Log the result
+// Log response details
 error_log("✅ UI POST HTTP status: {$httpCode}");
 error_log("🔍 UI response body (first 200 chars):\n" . substr($respBody, 0, 200));
 
-// === STEP 6: RETURN JSON FEEDBACK ===
+// ----------------------------------------------------------------------------
+// STEP 6: RETURN JSON SUMMARY
+// ----------------------------------------------------------------------------
 
 echo json_encode([
     'status'       => ($httpCode >= 200 && $httpCode < 300) ? 'success' : 'error',
