@@ -116,6 +116,46 @@ error_log("📥 [UI GET] Headers:\n" . $fetchHeaders);
 // Log full body (trimmed to first 2000 chars for safety)
 error_log("📄 [UI GET] Body (first 2000 chars):\n" . substr($fetchBody, 0, 2000));
 
+// (Insert this snippet right here, before parsing inputs)
+//
+// === BEGIN: Log available template_<N> options ===
+
+// 1a) Search for any <select name="template_X"> in the HTML
+preg_match_all(
+    '/<select[^>]+name=["\'](template_[0-9]+)["\'][^>]*>(.*?)<\/select>/is',
+    $fetchBody,
+    $selectMatches,
+    PREG_SET_ORDER
+);
+foreach ($selectMatches as $sm) {
+    $fieldName = $sm[1];      // e.g. "template_1"
+    $innerHtml = $sm[2];      // the <option>…</option> block
+    error_log("🔎 Found <select name=\"{$fieldName}\">…</select> with options:");
+
+    // Now extract every <option value="X">…</option>
+    preg_match_all('/<option[^>]+value=["\']([0-9]+)["\'][^>]*>([^<]*)<\/option>/i', $innerHtml, $optMatches, PREG_SET_ORDER);
+    foreach ($optMatches as $om) {
+        $val = $om[1];
+        $txt = trim($om[2]);
+        error_log("    • Option: value=\"{$val}\", label=\"{$txt}\"");
+    }
+}
+
+// 1b) Also check for any hidden <input name="template_X" value="Y">
+preg_match_all(
+    '/<input[^>]+name=["\'](template_[0-9]+)["\'][^>]*value=["\']([0-9]+)["\'][^>]*>/i',
+    $fetchBody,
+    $inputTemplateMatches,
+    PREG_SET_ORDER
+);
+foreach ($inputTemplateMatches as $itm) {
+    $field = $itm[1];   // e.g. "template_1"
+    $val   = $itm[2];   // e.g. "123"
+    error_log("🔎 Found <input name=\"{$field}\" value=\"{$val}\" />");
+}
+// === END: Log available template_<N> options ===
+
+
 // If fetch code is 302 or 301, it likely redirected to login → show that
 if ($fetchCode >= 300 && $fetchCode < 400) {
     error_log("⚠️ [UI GET] Received a redirect (likely login). Please verify your session cookie.");
