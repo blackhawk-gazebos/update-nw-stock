@@ -1,7 +1,6 @@
 <?php
-// create_invoice_then_add_items.php
-// Step 1: create an invoice via RPC
-// Step 2: use cURL + session cookie to add line items to the new invoice
+// create_invoice_and_add_items_via_ui.php
+// 1) create invoice via RPC → 2) cURL the exact “test_invoice_curl.php” body (with invoiceId replaced)
 
 header('Content-Type: application/json');
 error_reporting(E_ALL);
@@ -21,41 +20,39 @@ $creds  = (object)[
     'password' =>$password
 ];
 
-// Build minimal createOrder parameters (no line items, just header)
+// Minimal createOrder params
 $today = new DateTime('now', new DateTimeZone('Pacific/Auckland'));
 $orderDate = $today->format('Y-m-d');
 
 $rpcParams = [
-    'promo_group_id'   => 33,               // your chosen promo group
+    'promo_group_id'   => 33,
     'orderdate'        => $orderDate,
     'statusdate'       => $orderDate,
-    'name'             => 'Test Customer RPC',
-    'company'          => 'Example Co RPC',
-    'address'          => '123 Main St',
+    'name'             => 'RPC Customer',
+    'company'          => 'RPC Co',
+    'address'          => '123 RPC Street',
     'city'             => 'Wellington',
     'postcode'         => '6011',
     'state'            => '',
     'country'          => 'New Zealand',
-    'phone'            => '021 555 123',
-    'mobile'           => '021 555 123',
-    'email'            => 'rpc-test@example.nz',
+    'phone'            => '021 555 0000',
+    'mobile'           => '021 555 0001',
+    'email'            => 'rpc@example.nz',
     'type'             => 'invoice',
-    'note'             => 'Created via RPC then UI curl',
+    'note'             => 'RPC → UI curl flow',
     'taxable'          => '1',
     'taxareaid'        => 1,
     'discountamount'   => '0.00',
-    // No line items here:
     'thelineitems'     => [],
     'lineitemschanged' => 0,
 ];
 
 try {
-    $newInvoice = $client->createOrder($creds, $rpcParams);
-    // OMINS sometimes returns an array ['id'=>12345], or sometimes just 12345
-    if (is_array($newInvoice) && isset($newInvoice['id'])) {
-        $invoiceId = intval($newInvoice['id']);
-    } elseif (is_numeric($newInvoice)) {
-        $invoiceId = intval($newInvoice);
+    $createRes = $client->createOrder($creds, $rpcParams);
+    if (is_array($createRes) && isset($createRes['id'])) {
+        $invoiceId = intval($createRes['id']);
+    } elseif (is_numeric($createRes)) {
+        $invoiceId = intval($createRes);
     } else {
         throw new Exception("Unexpected createOrder response");
     }
@@ -69,180 +66,161 @@ try {
     exit;
 }
 
-// Log for debugging
 error_log("✅ RPC created invoice ID: {$invoiceId}");
 
 // -----------------------------------------------------------------------------
-// STEP 2: ADD LINE ITEMS VIA UI‐STYLE cURL POST
+// STEP 2: PREPARE AND SEND UI CURL WITH LINE ITEMS
 // -----------------------------------------------------------------------------
 
-// 2a) Paste your valid session cookie here (just PHPSESSID and omins_db).  
-//     You can grab these by logging into OMINS in your browser, viewing cookies,
-//     and copying “PHPSESSID=…; omins_db=…” for this domain.
+// 2a) Copy your valid session cookie (only PHPSESSID & omins_db) from browser
+$sessionCookie = 'PHPSESSID=YOUR_PHPSESSID; omins_db=omins_12271';
 
-$sessionCookie = 'PHPSESSID=YOUR_PHPSESSID_VALUE; omins_db=omins_12271';
-
-// 2b) URL for saving (edit) that invoice we just created:
+// 2b) Build the URL using the new $invoiceId
 $tableId = 1041;
-$url = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableId}&id={$invoiceId}";
+$url     = "https://omins.snipesoft.net.nz/modules/omins/invoices_addedit.php?tableid={$tableId}&id={$invoiceId}";
 
-// 2c) Build the raw POST body exactly as from your working cURL.
-//     We simply replace every “30641” with our dynamic $invoiceId.
-//     (Dates here are hardcoded; adjust to suit.)
+// 2c) Build the raw POST body, exactly matching test_invoice_curl.php (file :contentReference[oaicite:1]{index=1}),
+//      but replacing every “30641” with the dynamic {$invoiceId}.
 
-$postFields = [
-    // ——— CORE SAVE FIELDS ———
-    'is_pos'                  => '0',
-    'tableid'                 => (string)$tableId,
-    'recordid'                => (string)$invoiceId,
-    'lets_addNI'              => '0',
-    'is_pickup'               => '0',
-    'command'                 => 'save',
-    'omins_submit_system_id'  => '12271',
-    'default_report'          => '10',
-    'creation_type'           => 'manual',
-    'orderdate'               => '03/06/2025',    // DD/MM/YYYY
-    'duedate'                 => '05/06/2025',
-    'dispatchdate'            => '',
-    'id'                      => (string)$invoiceId,
-    'promo_group_id'          => '33',
-    'type'                    => 'invoice',
-    'oldType'                 => 'invoice',
-    'ponumber'                => '',
-    'remote_id'               => 'N/A',
-    'transactions'            => '',
-    'note'                    => '',
-    'specialsetpaid'          => '0',
-    'specialsetpaiddate'      => '0',
-    'statusid'                => '1-processing',
-    'statuschanged'           => '+0',
-    'statusdate'              => '03/06/2025',
-    'paid'                    => '0',
-    'origpaid'                => '0',
-    'assignedtoid'            => '19',
-    'ds-assignedtoid'         => 'Will.h',
-    'emailid'                 => '9',
-    'cid'                     => '0',
-    'contact_id'              => '0',
-    'username'                => '',
-    'cash_sale'               => '1',
-    'shippingmethod_override' => 'none',
+$postData =
+    "is_pos=0"
+    . "&tableid=1041"
+    . "&recordid={$invoiceId}"
+    . "&lets_addNI=0"
+    . "&is_pickup=0"
+    . "&command=save"
+    . "&omins_submit_system_id=12271"
+    . "&default_report=10"
+    . "&creation_type=manual"
+    . "&orderdate=03%2F06%2F2025"
+    . "&duedate=05%2F06%2F2025"
+    . "&dispatchdate="
+    . "&id={$invoiceId}"
+    . "&promo_group_id=33"
+    . "&type=invoice"
+    . "&oldType=invoice"
+    . "&ponumber="
+    . "&remote_id=N%2FA"
+    . "&transactions="
+    . "&note="
+    . "&specialsetpaid=0"
+    . "&specialsetpaiddate=0"
+    . "&statusid=1-processing"
+    . "&statuschanged=+0"
+    . "&statusdate=03%2F06%2F2025"
+    . "&paid=0"
+    . "&origpaid=0"
+    . "&assignedtoid=19"
+    . "&ds-assignedtoid=Will.h"
+    . "&emailid=9"
+    . "&cid=0"
+    . "&contact_id=0"
+    . "&username="
+    . "&cash_sale=1"
+    . "&shippingmethod_override=none"
+    . "&name=Dianna+Boustridge"
+    . "&company=APB+Electrical+2008+Ltd"
+    . "&address=7+Gladstone+Street"
+    . "&city=Feilding"
+    . "&postcode=4702"
+    . "&state="
+    . "&country=New+Zealand"
+    . "&ship_instructions="
+    . "&phone=0800+272363"
+    . "&mobile=021865059"
+    . "&email=dianna%40apbelectrical.co.nz"
+    . "&trackingno_0="
+    . "&static_code="
+    . "&thelineitems="
+    . "&lineitemschanged=1"
+    . "&unitcost=0"
+    . "&unitweight=0"
+    . "&taxable=1"
+    . "&imgpath=%2Fcommon%2Fstylesheet%2Fmozilla%2Fimage"
+    . "&thisuser="
+    . "&lets_addNI=0"
+    . "&is_pos=0"
+    . "&upc="
+    . "&ds-upc="
+    . "&matching_upc_to_id="
+    . "&partnumber="
+    . "&ds-partnumber="
+    . "&matching_partnumber_to_id="
+    . "&stock_count="
+    . "&item_description="
+    . "&ds-item_description="
+    . "&line_shipping="
+    . "&price="
+    . "&qty="
+    . "&extended="
+    // Line #1
+    . "&line_id_1=119339"
+    . "&shipping_description_1="
+    . "&upc_1=1868"
+    . "&ds-upc_1="
+    . "&partnumber_1=1868"
+    . "&ds-partnumber_1=MED+FLAG+POLE"
+    . "&description_1=Flag+Pole+-+MED"
+    . "&line_shipping_1=%240.00"
+    . "&price_1=%2490.0000"
+    . "&qty_1=1"
+    . "&extended_1=%2490.00"
+    // Line #2
+    . "&upc_2=4762"
+    . "&ds-upc_2="
+    . "&matching_upc_to_id="
+    . "&partnumber_2=4762"
+    . "&ds-partnumber_2=3m+Frame+Pro+Steel+24new"
+    . "&matching_partnumber_to_id="
+    . "&stock_count_2=153"
+    . "&description_2=3m+Pro+Steel+Frame+with+Carry+bag"
+    . "&line_shipping_2=%240.00"
+    . "&price_2=%240.0000"
+    . "&qty_2=1"
+    . "&extended_2=%240.00"
+    . "&linenumber=2"
+    . "&shipping=%240.00"
+    . "&subextended=%2490.00"
+    . "&discountid=0"
+    . "&discount=0"
+    . "&tax_inclusive=1"
+    . "&taxareaid=1"
+    . "&taxpercentage=15.00000%25"
+    . "&totalBD=90"
+    . "&discountamount=%240.00"
+    . "&totaltni=%2490.00"
+    . "&tax=%2411.74"
+    . "&totalti=%2490.00"
+    . "&totaltaxable=0"
+    . "&payment_notes="
+    . "&payment_date=04%2F06%2F2025"
+    . "&payment_method=1"
+    . "&payment_amount=%240.00"
+    . "&total_paid=%240.00"
+    . "&balance=%2490.00"
+    . "&paymentsnumber=0"
+    . "&specialinstructions="
+    . "&printedinstructions=Thank+You+For+Your+Order."
+    . "&omins_submit_system_id=12271"
+    . "&createdby="
+    . "&creationdate=03%2F06%2F2025+10%3A06+am"
+    . "&modifiedby="
+    . "&cancelclick=0"
+    . "&modifieddate=03%2F06%2F2025+10%3A08+am";
 
-    // ——— CUSTOMER & SHIPPING INFO ———
-    'name'                    => 'Dianna Boustridge',
-    'company'                 => 'APB Electrical 2008 Ltd',
-    'address'                 => '7 Gladstone Street',
-    'city'                    => 'Feilding',
-    'postcode'                => '4702',
-    'state'                   => '',
-    'country'                 => 'New Zealand',
-    'ship_instructions'       => '',
-    'phone'                   => '0800 272363',
-    'mobile'                  => '021865059',
-    'email'                   => 'dianna@apbelectrical.co.nz',
-
-    // ——— LINE ITEM FLAGS ———
-    'trackingno_0'            => '',
-    'static_code'             => '',
-    'thelineitems'            => '',
-    'lineitemschanged'        => '1',
-    'unitcost'                => '0',
-    'unitweight'              => '0',
-    'taxable'                 => '1',
-    'imgpath'                 => '/common/stylesheet/mozilla/image',
-    'thisuser'                => '',
-    'lets_addNI'              => '0',
-    'is_pos'                  => '0',
-
-    // Blank placeholders (UI expects these keys even if unused)
-    'upc'                     => '',
-    'ds-upc'                  => '',
-    'matching_upc_to_id'      => '',
-    'partnumber'              => '',
-    'ds-partnumber'           => '',
-    'matching_partnumber_to_id' => '',
-    'stock_count'             => '',
-    'item_description'        => '',
-    'ds-item_description'     => '',
-    'line_shipping'           => '',
-    'price'                   => '',
-    'qty'                     => '',
-    'extended'                => '',
-
-    // ——— HARD CODED LINE #1 ———
-    'line_id_1'               => '119339',
-    'shipping_description_1'  => '',
-    'upc_1'                   => '1868',
-    'ds-upc_1'                => '',
-    'partnumber_1'            => '1868',
-    'ds-partnumber_1'         => 'MED FLAG POLE',
-    'description_1'           => 'Flag Pole – MED',
-    'line_shipping_1'         => '$0.00',
-    'price_1'                 => '$90.0000',
-    'qty_1'                   => '1',
-    'extended_1'              => '$90.00',
-
-    // ——— HARD CODED LINE #2 ———
-    'upc_2'                   => '4762',
-    'ds-upc_2'                => '',
-    'matching_upc_to_id'      => '',
-    'partnumber_2'            => '4762',
-    'ds-partnumber_2'         => '3m Frame Pro Steel 24new',
-    'matching_partnumber_to_id' => '',
-    'stock_count_2'           => '153',
-    'description_2'           => '3m Pro Steel Frame with Carry bag',
-    'line_shipping_2'         => '$0.00',
-    'price_2'                 => '$0.0000',
-    'qty_2'                   => '1',
-    'extended_2'              => '$0.00',
-
-    // Totals & taxes (can usually be omitted and recalculated, but included here)
-    'linenumber'              => '2',
-    'shipping'                => '$0.00',
-    'subextended'             => '$90.00',
-    'discountid'              => '0',
-    'discount'                => '0',
-    'tax_inclusive'           => '1',
-    'taxareaid'               => '1',
-    'taxpercentage'           => '15.00000%25',
-    'totalBD'                 => '90',
-    'discountamount'          => '$0.00',
-    'totaltni'                => '$90.00',
-    'tax'                     => '$11.74',
-    'totalti'                 => '$90.00',
-    'totaltaxable'            => '0',
-    'payment_notes'           => '',
-    'payment_date'            => '04/06/2025',
-    'payment_method'          => '1',
-    'payment_amount'          => '$0.00',
-    'total_paid'              => '$0.00',
-    'balance'                 => '$90.00',
-    'paymentsnumber'          => '0',
-    'specialinstructions'     => '',
-    'printedinstructions'     => 'Thank You For Your Order.',
-    'createdby'               => '',
-    'creationdate'            => '03/06/2025 10:06 am',
-    'modifiedby'              => '',
-    'cancelclick'             => '0',
-    'modifieddate'            => '03/06/2025 10:08 am',
-];
-
-// Convert to URL‐encoded string
-$postData = http_build_query($postFields);
-
-// === STEP 3: DEBUG LOG THE POST PAYLOAD ===
-error_log("🔧 POST payload to UI:");
-foreach ($postFields as $k => $v) {
-    error_log("    {$k} => {$v}");
+// Log the POST payload
+error_log("🔧 UI POST payload for invoice {$invoiceId}:");
+foreach (explode('&', $postData) as $chunk) {
+    error_log("    {$chunk}");
 }
 
-// === STEP 4: cURL the UI save ===
+// 2d) Perform the cURL
 $ch = curl_init($url);
 curl_setopt_array($ch, [
     CURLOPT_POST           => true,
     CURLOPT_POSTFIELDS     => $postData,
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_HEADER         => true,  // so we can inspect headers
+    CURLOPT_HEADER         => true,
     CURLOPT_HTTPHEADER     => [
         "Content-Type: application/x-www-form-urlencoded",
         "Cookie: {$sessionCookie}",
@@ -251,30 +229,34 @@ curl_setopt_array($ch, [
     ],
 ]);
 $response = curl_exec($ch);
-$err = curl_error($ch);
+$curlErr  = curl_error($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-if ($err) {
+if ($curlErr) {
     http_response_code(500);
     echo json_encode([
         'status'  => 'error',
         'stage'   => 'UI POST',
-        'message' => $err
+        'message' => $curlErr
     ]);
     exit;
 }
 
-// Separate headers & body
+// Split headers & body
 list($respHeaders, $respBody) = explode("\r\n\r\n", $response, 2);
 
-// Log response details
-error_log("✅ HTTP status: {$httpCode}");
-error_log("🔍 Response body (first 200 chars):\n" . substr($respBody, 0, 200));
+// Log response
+error_log("✅ UI POST HTTP status: {$httpCode}");
+error_log("🔍 UI response body (first 200 chars):\n" . substr($respBody, 0, 200));
 
-// === STEP 5: RETURN JSON FEEDBACK FOR YOUR LOGS ===
+// -----------------------------------------------------------------------------
+// STEP 3: RETURN COMBINED RESULT
+// -----------------------------------------------------------------------------
+
 echo json_encode([
     'status'       => ($httpCode >= 200 && $httpCode < 300) ? 'success' : 'error',
+    'invoice_id'   => $invoiceId,
     'http_code'    => $httpCode,
     'headers'      => $respHeaders,
     'body_snippet' => substr($respBody, 0, 200)
