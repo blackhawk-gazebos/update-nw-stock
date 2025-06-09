@@ -40,6 +40,7 @@ $state   = $ship['state']     ?? '';
 $country = $ship['country']   ?? '';
 $phone   = $ship['phone']     ?? '';
 $email   = $ship['email']     ?? '';
+$orderID = $ship['order_id']  ?? '';
 
 // 3) Dates
 // Since this payload has no date_created, we'll just use today in Auckland
@@ -73,7 +74,8 @@ $params = [
     'mobile'             => $phone,
     'email'              => $email,
     'type'               => 'invoice',
-    'note'               => 'BC Shipping Only Invoice',
+    'note'               => 'BC Shipping Only Invoice {$orderID}',
+    'specialinstructions' => 'https://store-va5pcinq8p.mybigcommerce.com/manage/orders?keywords={$orderID}',
     // no items:
     'lineitemschanged'   => 0,
 ];
