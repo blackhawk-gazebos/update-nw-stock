@@ -75,7 +75,7 @@ $params = [
     'email'              => $email,
     'type'               => 'invoice',
     'note'               => "BC Shipping Only Invoice {$orderID}",
-    'specialinstructions' => "https://store-va5pcinq8p.mybigcommerce.com/manage/orders?keywords={$orderID}",
+    //'specialinstructions' => "https://store-va5pcinq8p.mybigcommerce.com/manage/orders?keywords={$orderID}",
     // no items:
     'lineitemschanged'   => 0,
 ];
