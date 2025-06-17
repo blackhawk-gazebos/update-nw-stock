@@ -48,6 +48,8 @@ $addressLines = array_filter([
     $street1,
     $street2,
 ]);
+    // join with a newline
+$fullAddress = implode("\n", $addressLines);
 
 // 3) Dates
 // Since this payload has no date_created, we'll just use today in Auckland
@@ -72,7 +74,7 @@ $params = [
     'statusdate'         => $statusDate,
     'name'               => $name,
     'company'            => $company,
-    'address'            => $addressLines,
+    'address'            => $fullAddress,
     'city'               => $city,
     'postcode'           => $zip,
     'state'              => $state,
