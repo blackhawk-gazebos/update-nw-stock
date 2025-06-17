@@ -33,7 +33,8 @@ $ship = $data[0];
 // 2) Map shipping fields into invoice header
 $name    = trim(($ship['first_name'] ?? '') . ' ' . ($ship['last_name'] ?? ''));
 $company = $ship['company']   ?? '';
-$street  = $ship['street_1']  ?? '';
+$street1  = $ship['street_1']  ?? '';
+$street2 = $ship['street_2']  ?? '';
 $city    = $ship['city']      ?? '';
 $zip     = $ship['zip']       ?? '';
 $state   = $ship['state']     ?? '';
@@ -41,6 +42,12 @@ $country = $ship['country']   ?? '';
 $phone   = $ship['phone']     ?? '';
 $email   = $ship['email']     ?? '';
 $orderID = $ship['order_id']  ?? '';
+
+// 2.1) build a 2-line address, but drop any empty parts
+$addressLines = array_filter([
+    $street1,
+    $street2,
+]);
 
 // 3) Dates
 // Since this payload has no date_created, we'll just use today in Auckland
@@ -65,7 +72,7 @@ $params = [
     'statusdate'         => $statusDate,
     'name'               => $name,
     'company'            => $company,
-    'address'            => $street,
+    'address'            => $addressLines,
     'city'               => $city,
     'postcode'           => $zip,
     'state'              => $state,
